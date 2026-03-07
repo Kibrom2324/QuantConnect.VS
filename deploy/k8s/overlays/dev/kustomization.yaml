@@ -1,0 +1,43 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# ─── Dev overlay: single replicas, paper-trading only ───────────────────────
+# All services run with replicas: 1 and ALPACA_BASE_URL is forced to the
+# paper-trading endpoint.  Never override to the live URL in this overlay.
+
+bases:
+  - ../../base
+
+namespace: apex
+
+commonLabels:
+  environment: dev
+
+patches:
+  # Force all service deployments to 1 replica
+  - target:
+      kind: Deployment
+      labelSelector: "app.kubernetes.io/part-of=apex"
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+
+  # Override resource limits to save cluster resources in dev
+  - target:
+      kind: Deployment
+      labelSelector: "app.kubernetes.io/part-of=apex"
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: "200m"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: "256Mi"
+
+configMapGenerator:
+  - name: apex-config
+    behavior: merge
+    literals:
+      - ALPACA_BASE_URL=https://paper-api.alpaca.markets
+      - LOG_LEVEL=DEBUG

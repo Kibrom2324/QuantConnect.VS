@@ -1,0 +1,464 @@
+{
+  "__inputs": [],
+  "__elements": {},
+  "__requires": [
+    { "type": "grafana", "id": "grafana", "name": "Grafana", "version": "10.0.0" },
+    { "type": "datasource", "id": "prometheus", "name": "Prometheus", "version": "1.0.0" },
+    { "type": "panel", "id": "stat", "name": "Stat", "version": "" },
+    { "type": "panel", "id": "gauge", "name": "Gauge", "version": "" },
+    { "type": "panel", "id": "timeseries", "name": "Time series", "version": "" },
+    { "type": "panel", "id": "table", "name": "Table", "version": "" },
+    { "type": "panel", "id": "bargauge", "name": "Bar gauge", "version": "" }
+  ],
+  "annotations": { "list": [] },
+  "description": "APEX Algorithmic Trading — live portfolio, model health, signal pipeline & system metrics",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [
+    { "icon": "external link", "tags": [], "targetBlank": true, "title": "APEX Dashboard", "tooltip": "Open trading dashboard", "type": "link", "url": "http://localhost:3001/dashboard" },
+    { "icon": "external link", "tags": [], "targetBlank": true, "title": "MLflow", "tooltip": "Model experiment tracking", "type": "link", "url": "http://localhost:5000" }
+  ],
+  "panels": [
+
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "id": 100,
+      "title": "⚡ PORTFOLIO",
+      "type": "row"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "apex-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "red",   "value": 1 },
+            { "color": "green", "value": 0 }
+          ]},
+          "mappings": [
+            { "options": { "0": { "color": "green", "index": 0, "text": "TRADING" }, "1": { "color": "red", "index": 1, "text": "HALTED" }}, "type": "value" }
+          ],
+          "unit": "short"
+        }
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 1 },
+      "id": 1,
+      "options": { "colorMode": "background", "graphMode": "none", "justifyMode": "center", "orientation": "horizontal", "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "auto" },
+      "targets": [{ "datasource": { "type": "prometheus", "uid": "apex-prometheus" }, "expr": "apex_kill_switch_active", "legendFormat": "Kill Switch", "refId": "A" }],
+      "title": "Kill Switch",
+      "type": "stat"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "apex-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "red",    "value": -0.05 },
+            { "color": "orange", "value": -0.02 },
+            { "color": "green",  "value": 0 }
+          ]},
+          "unit": "percentunit",
+          "decimals": 2
+        }
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 1 },
+      "id": 2,
+      "options": { "colorMode": "background", "graphMode": "area", "justifyMode": "center", "orientation": "horizontal", "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "auto" },
+      "targets": [{ "datasource": { "type": "prometheus", "uid": "apex-prometheus" }, "expr": "apex_portfolio_daily_pnl_pct", "legendFormat": "Daily P&L", "refId": "A" }],
+      "title": "Daily P&L",
+      "type": "stat"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "apex-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "blue",  "value": 0 },
+            { "color": "green", "value": 1 }
+          ]},
+          "unit": "short",
+          "decimals": 0
+        }
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 1 },
+      "id": 3,
+      "options": { "colorMode": "value", "graphMode": "area", "justifyMode": "center", "orientation": "horizontal", "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "auto" },
+      "targets": [{ "datasource": { "type": "prometheus", "uid": "apex-prometheus" }, "expr": "apex_active_positions_count", "legendFormat": "Positions", "refId": "A" }],
+      "title": "Active Positions",
+      "type": "stat"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "apex-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green",  "value": 0 },
+            { "color": "yellow", "value": 300 },
+            { "color": "red",    "value": 600 }
+          ]},
+          "unit": "s",
+          "decimals": 0
+        }
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 1 },
+      "id": 4,
+      "options": { "colorMode": "value", "graphMode": "none", "justifyMode": "center", "orientation": "horizontal", "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "auto" },
+      "targets": [{ "datasource": { "type": "prometheus", "uid": "apex-prometheus" }, "expr": "time() - apex_last_signal_timestamp", "legendFormat": "Age", "refId": "A" }],
+      "title": "Last Signal Age",
+      "type": "stat"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "apex-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green",  "value": 0 },
+            { "color": "yellow", "value": 0.30 },
+            { "color": "red",    "value": 0.50 }
+          ]},
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1
+        }
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 1 },
+      "id": 5,
+      "options": { "colorMode": "background", "graphMode": "area", "justifyMode": "center", "orientation": "horizontal", "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "auto" },
+      "targets": [{ "datasource": { "type": "prometheus", "uid": "apex-prometheus" }, "expr": "apex_model_sharpe_drift_ratio", "legendFormat": "Drift", "refId": "A" }],
+      "title": "Model Sharpe Drift",
+      "type": "stat"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "apex-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "red",   "value": 0 },
+            { "color": "green", "value": 1 }
+          ]},
+          "mappings": [
+            { "options": { "0": { "color": "red", "index": 0, "text": "DOWN" }, "1": { "color": "green", "index": 1, "text": "UP" }}, "type": "value" }
+          ]
+        }
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 1 },
+      "id": 6,
+      "options": { "colorMode": "background", "graphMode": "none", "justifyMode": "center", "orientation": "horizontal", "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "auto" },
+      "targets": [{ "datasource": { "type": "prometheus", "uid": "apex-prometheus" }, "expr": "up{job=\"signal_provider\"}", "legendFormat": "Signal", "refId": "A" }],
+      "title": "Signal Provider",
+      "type": "stat"
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 },
+      "id": 101,
+      "title": "📈 P&L & SIGNALS",
+      "type": "row"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "apex-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "fixedColor": "#73bf69", "mode": "fixed" },
+          "custom": { "fillOpacity": 15, "lineWidth": 2, "spanNulls": false },
+          "unit": "percentunit",
+          "decimals": 3,
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "red", "value": -0.05 },
+            { "color": "green", "value": 0 }
+          ]}
+        }
+      },
+      "gridPos": { "h": 8, "w": 16, "x": 0, "y": 6 },
+      "id": 7,
+      "options": { "legend": { "calcs": ["lastNotNull", "min", "max", "mean"], "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "apex-prometheus" }, "expr": "apex_portfolio_cumulative_pnl_pct", "legendFormat": "Cumulative P&L", "refId": "A" },
+        { "datasource": { "type": "prometheus", "uid": "apex-prometheus" }, "expr": "apex_portfolio_daily_pnl_pct", "legendFormat": "Daily P&L", "refId": "B" }
+      ],
+      "title": "Portfolio P&L",
+      "type": "timeseries"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "apex-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "fillOpacity": 10, "lineWidth": 2, "spanNulls": false },
+          "unit": "short",
+          "decimals": 2
+        }
+      },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 6 },
+      "id": 8,
+      "options": { "legend": { "calcs": ["lastNotNull"], "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "apex-prometheus" }, "expr": "rate(apex_signals_total[5m]) * 300", "legendFormat": "Signals / 5m", "refId": "A" },
+        { "datasource": { "type": "prometheus", "uid": "apex-prometheus" }, "expr": "rate(apex_orders_total[5m]) * 300", "legendFormat": "Orders / 5m", "refId": "B" }
+      ],
+      "title": "Signal & Order Rate",
+      "type": "timeseries"
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 14 },
+      "id": 102,
+      "title": "🧠 MODEL HEALTH",
+      "type": "row"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "apex-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green",  "value": 0 },
+            { "color": "yellow", "value": 0.30 },
+            { "color": "orange", "value": 0.40 },
+            { "color": "red",    "value": 0.50 }
+          ]},
+          "unit": "percentunit",
+          "min": 0,
+          "max": 0.80
+        }
+      },
+      "gridPos": { "h": 7, "w": 6, "x": 0, "y": 15 },
+      "id": 9,
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "showThresholdLabels": true, "showThresholdMarkers": true },
+      "targets": [{ "datasource": { "type": "prometheus", "uid": "apex-prometheus" }, "expr": "apex_model_sharpe_drift_ratio", "legendFormat": "Sharpe Drift", "refId": "A" }],
+      "title": "Sharpe Drift Ratio",
+      "type": "gauge"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "apex-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "fillOpacity": 10, "lineWidth": 2 },
+          "unit": "short",
+          "decimals": 3
+        }
+      },
+      "gridPos": { "h": 7, "w": 12, "x": 6, "y": 15 },
+      "id": 10,
+      "options": { "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "right" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "apex-prometheus" }, "expr": "apex_model_live_sharpe", "legendFormat": "Live Sharpe", "refId": "A" },
+        { "datasource": { "type": "prometheus", "uid": "apex-prometheus" }, "expr": "apex_model_backtest_sharpe", "legendFormat": "Backtest Sharpe", "refId": "B" }
+      ],
+      "title": "Live vs Backtest Sharpe",
+      "type": "timeseries"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "apex-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "blue", "value": 0 },
+            { "color": "blue", "value": 1 }
+          ]},
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1
+        },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "TFT" },    "properties": [{ "id": "color", "value": { "fixedColor": "#22d3ee", "mode": "fixed" }}]},
+          { "matcher": { "id": "byName", "options": "XGBoost"}, "properties": [{ "id": "color", "value": { "fixedColor": "#a855f7", "mode": "fixed" }}]},
+          { "matcher": { "id": "byName", "options": "LSTM" },   "properties": [{ "id": "color", "value": { "fixedColor": "#f59e0b", "mode": "fixed" }}]}
+        ]
+      },
+      "gridPos": { "h": 7, "w": 6, "x": 18, "y": 15 },
+      "id": 11,
+      "options": { "displayMode": "gradient", "orientation": "horizontal", "reduceOptions": { "calcs": ["lastNotNull"] }, "showUnfilled": true },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "apex-prometheus" }, "expr": "apex_ensemble_weight{model=\"tft\"}", "legendFormat": "TFT", "refId": "A" },
+        { "datasource": { "type": "prometheus", "uid": "apex-prometheus" }, "expr": "apex_ensemble_weight{model=\"xgb\"}", "legendFormat": "XGBoost", "refId": "B" },
+        { "datasource": { "type": "prometheus", "uid": "apex-prometheus" }, "expr": "apex_ensemble_weight{model=\"lstm\"}", "legendFormat": "LSTM", "refId": "C" }
+      ],
+      "title": "Ensemble Weights",
+      "type": "bargauge"
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 22 },
+      "id": 103,
+      "title": "⚙ INFRASTRUCTURE",
+      "type": "row"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "apex-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "red", "value": 0 },
+            { "color": "green", "value": 1 }
+          ]},
+          "mappings": [
+            { "options": { "0": { "color": "red", "index": 0, "text": "DOWN" }, "1": { "color": "green", "index": 1, "text": "UP" }}, "type": "value" }
+          ]
+        }
+      },
+      "gridPos": { "h": 4, "w": 24, "x": 0, "y": 23 },
+      "id": 12,
+      "options": { "colorMode": "background", "graphMode": "none", "justifyMode": "center", "orientation": "horizontal", "reduceOptions": { "calcs": ["lastNotNull"] }, "textMode": "auto" },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "apex-prometheus" }, "expr": "up{job=\"redis\"}", "legendFormat": "Redis", "refId": "A" },
+        { "datasource": { "type": "prometheus", "uid": "apex-prometheus" }, "expr": "up{job=\"signal_provider\"}", "legendFormat": "Signal Provider", "refId": "B" },
+        { "datasource": { "type": "prometheus", "uid": "apex-prometheus" }, "expr": "up{job=\"risk_engine\"}", "legendFormat": "Risk Engine", "refId": "C" },
+        { "datasource": { "type": "prometheus", "uid": "apex-prometheus" }, "expr": "up{job=\"model_monitor\"}", "legendFormat": "Model Monitor", "refId": "D" },
+        { "datasource": { "type": "prometheus", "uid": "apex-prometheus" }, "expr": "up{job=\"mlflow\"}", "legendFormat": "MLflow", "refId": "E" },
+        { "datasource": { "type": "prometheus", "uid": "apex-prometheus" }, "expr": "up{job=\"apex_dashboard\"}", "legendFormat": "Dashboard", "refId": "F" }
+      ],
+      "title": "Service Health",
+      "type": "stat"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "apex-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "fillOpacity": 10, "lineWidth": 1, "spanNulls": false },
+          "unit": "bytes"
+        }
+      },
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 27 },
+      "id": 13,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "apex-prometheus" }, "expr": "process_resident_memory_bytes{job=~\"apex.*|signal.*|model.*|risk.*\"}", "legendFormat": "{{job}}", "refId": "A" }
+      ],
+      "title": "Service Memory (RSS)",
+      "type": "timeseries"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "apex-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green",  "value": 0 },
+            { "color": "yellow", "value": 2 },
+            { "color": "red",    "value": 5 }
+          ]},
+          "unit": "s",
+          "min": 0,
+          "max": 10
+        }
+      },
+      "gridPos": { "h": 7, "w": 6, "x": 12, "y": 27 },
+      "id": 14,
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "showThresholdLabels": false, "showThresholdMarkers": true },
+      "targets": [{ "datasource": { "type": "prometheus", "uid": "apex-prometheus" }, "expr": "histogram_quantile(0.95, rate(apex_order_latency_seconds_bucket[5m]))", "legendFormat": "p95 latency", "refId": "A" }],
+      "title": "Order Execution p95 Latency",
+      "type": "gauge"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "apex-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "fillOpacity": 10, "lineWidth": 1 },
+          "unit": "short"
+        }
+      },
+      "gridPos": { "h": 7, "w": 6, "x": 18, "y": 27 },
+      "id": 15,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "apex-prometheus" }, "expr": "redis_connected_clients", "legendFormat": "Connected clients", "refId": "A" },
+        { "datasource": { "type": "prometheus", "uid": "apex-prometheus" }, "expr": "redis_blocked_clients", "legendFormat": "Blocked clients", "refId": "B" }
+      ],
+      "title": "Redis Connections",
+      "type": "timeseries"
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 34 },
+      "id": 104,
+      "title": "🚨 ACTIVE ALERTS",
+      "type": "row"
+    },
+
+    {
+      "datasource": { "type": "prometheus", "uid": "apex-prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": { "type": "auto" },
+            "filterable": true
+          }
+        },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "severity" }, "properties": [
+            { "id": "custom.width", "value": 100 },
+            { "id": "custom.cellOptions", "value": { "type": "color-background" }},
+            { "id": "thresholds", "value": { "mode": "absolute", "steps": [
+              { "color": "yellow", "value": null },
+              { "color": "red", "value": null }
+            ]}}
+          ]},
+          { "matcher": { "id": "byName", "options": "alertname" }, "properties": [
+            { "id": "custom.width", "value": 220 }
+          ]}
+        ]
+      },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 35 },
+      "id": 16,
+      "options": { "footer": { "show": false }, "showHeader": true, "sortBy": [{ "desc": true, "displayName": "severity" }] },
+      "targets": [{
+        "datasource": { "type": "prometheus", "uid": "apex-prometheus" },
+        "expr": "ALERTS{alertstate=\"firing\"}",
+        "format": "table",
+        "instant": true,
+        "legendFormat": "",
+        "refId": "A"
+      }],
+      "title": "Firing Alerts",
+      "transformations": [
+        { "id": "organize", "options": { "excludeByName": { "__name__": true, "Time": false, "Value": true }, "renameByName": { "alertname": "Alert", "alertstate": "State", "severity": "Severity", "summary": "Summary" }}}
+      ],
+      "type": "table"
+    }
+
+  ],
+
+  "refresh": "30s",
+  "schemaVersion": 38,
+  "tags": ["apex", "trading", "live"],
+  "time": { "from": "now-6h", "to": "now" },
+  "timepicker": {},
+  "timezone": "utc",
+  "title": "APEX Live Trading",
+  "uid": "apex-live-trading",
+  "version": 1
+}

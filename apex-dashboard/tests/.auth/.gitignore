@@ -1,0 +1,4 @@
+# Playwright session state — DO NOT COMMIT
+# Contains browser cookies/localStorage (auth tokens when APEX_HAS_AUTH is enabled)
+*
+!.gitignore

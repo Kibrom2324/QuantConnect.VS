@@ -1,0 +1,203 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# APEX Prometheus Model Operations Alert Rules
+# infra/prometheus/model_alerts.yml
+#
+# Phase 07 — Model Operations
+#
+# Metrics source: services/model_monitor/main.py  (port 8020, /metrics)
+#
+# Alert summary:
+#   ModelSharpeDrift  — live Sharpe has degraded ≥ 30 % below backtest baseline
+#   ModelStale        — no retrain in 45 days
+#   ModelMonitorDown  — model_monitor service is not reachable
+#   ModelLiveSharpeNegative — live Sharpe has gone negative (strategy losing)
+#   ModelBacktestSharpeUnavailable — MLflow production run not found
+#   ModelRetrainSchedulerDown — retrain_scheduler process has stopped
+#
+# Mount this file alongside alerts.yml.  Update docker-compose prometheus
+# volume mounts to include:
+#   - ./infra/prometheus/model_alerts.yml:/etc/prometheus/model_alerts.yml:ro
+# And add to prometheus.yml rule_files:
+#   - /etc/prometheus/model_alerts.yml
+# ─────────────────────────────────────────────────────────────────────────────
+
+groups:
+  - name: apex_model_drift
+    # Evaluated every 5 minutes — coarser than infra alerts (hourly poll cycle)
+    interval: 300s
+    rules:
+
+      # ── Primary drift alert ─────────────────────────────────────────────────
+      # Fires when the rolling 14-day live Sharpe has dropped ≥ 30 % relative
+      # to the last MLflow production (backtest) Sharpe.
+      #
+      # Formula:  apex_model_sharpe_drift_ratio >= 0.30
+      # Where:    drift_ratio = (backtest_sharpe - live_sharpe) / |backtest_sharpe|
+      #
+      # for: 30m — requires the condition to persist for 30 minutes before
+      #            firing, preventing transient spikes from noisy P&L from alerting.
+      - alert: ModelSharpeDrift
+        expr: apex_model_sharpe_drift_ratio >= 0.30
+        for: 30m
+        labels:
+          severity: warning
+          team:     mlops
+          phase:    "07"
+        annotations:
+          summary: "Model Sharpe degraded {{ $value | humanizePercentage }} below backtest baseline"
+          description: >
+            The rolling 14-day live Sharpe has
+            dropped {{ $value | humanizePercentage }} below the MLflow backtest Sharpe.
+            Threshold: 30%.
+            Action: retrain_scheduler.py will trigger automatically if drift >= 30%.
+            Check: http://localhost:5000 (MLflow) for production run details.
+          runbook_url: "docs/GO_LIVE_RUNBOOK.md#9-incident-response"
+
+      # Critical variant — fires immediately (no for:) when drift is severe (≥ 50%)
+      - alert: ModelSharpeDriftCritical
+        expr: apex_model_sharpe_drift_ratio >= 0.50
+        for: 0m
+        labels:
+          severity: critical
+          team:     mlops
+          phase:    "07"
+        annotations:
+          summary: "CRITICAL: Model Sharpe degraded {{ $value | humanizePercentage }} — immediate retrain required"
+          description: >
+            Live Sharpe has dropped {{ $value | humanizePercentage }} below backtest baseline.
+            This exceeds the critical 50% threshold.
+            retrain_scheduler.py MUST have already triggered.  If not, run manually:
+              python scripts/retrain_scheduler.py --check-now
+            Consider halting live trading until a new model is deployed.
+          runbook_url: "docs/GO_LIVE_RUNBOOK.md#9-incident-response"
+
+  - name: apex_model_staleness
+    interval: 3600s   # check staleness once per hour — no need for tighter polling
+    rules:
+
+      # ── Stale model alert ──────────────────────────────────────────────────
+      # Fires when no walk-forward retrain has run in 45 days.
+      # apex_model_last_retrain_timestamp is set by model_monitor from MLflow.
+      #
+      # 45 days = 3,888,000 seconds
+      - alert: ModelStale
+        expr: (time() - apex_model_last_retrain_timestamp) > 3888000
+        for: 1h
+        labels:
+          severity: warning
+          team:     mlops
+          phase:    "07"
+        annotations:
+          summary: "Model has not been retrained in {{ $value | humanizeDuration }}"
+          description: >
+            The last walk-forward retrain (production MLflow run) was
+            {{ $value | humanizeDuration }} ago.  Threshold is 45 days (3,888,000 s).
+            Action: run manually if retrain_scheduler.py is healthy but skipped:
+              python scripts/retrain_scheduler.py --check-now
+            Or investigate why the scheduler has not triggered.
+          runbook_url: "docs/GO_LIVE_RUNBOOK.md"
+
+      # More urgent variant at 60 days
+      - alert: ModelStaleCritical
+        expr: (time() - apex_model_last_retrain_timestamp) > 5184000
+        for: 1h
+        labels:
+          severity: critical
+          team:     mlops
+          phase:    "07"
+        annotations:
+          summary: "CRITICAL: Model not retrained in {{ $value | humanizeDuration }} (60-day limit)"
+          description: >
+            Model is {{ $value | humanizeDuration }} stale — exceeded 60-day critical limit.
+            Live trading with a 60-day-old model carries significant regime-drift risk.
+            Trigger immediate retrain:
+              python scripts/retrain_scheduler.py --check-now
+          runbook_url: "docs/GO_LIVE_RUNBOOK.md"
+
+  - name: apex_model_monitor_health
+    interval: 60s
+    rules:
+
+      # ── Model monitor service down ─────────────────────────────────────────
+      # Fires if the model_monitor HTTP server (port 8020) is not scraped by
+      # Prometheus for 5 minutes.  Requires model-monitor job in prometheus.yml.
+      - alert: ModelMonitorDown
+        expr: up{job="model_monitor"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          team:     mlops
+          phase:    "07"
+        annotations:
+          summary: "Model monitor service is down (port 8020 unreachable)"
+          description: >
+            services/model_monitor/main.py is not responding on port 8020.
+            Sharpe drift metrics are NOT being updated.
+            retrain_scheduler.py depends on live_sharpe from this service.
+            Restart: docker compose up -d model-monitor
+          runbook_url: "docs/GO_LIVE_RUNBOOK.md#9-incident-response"
+
+      # ── Live Sharpe gone negative ──────────────────────────────────────────
+      # A negative Sharpe means the strategy is net-losing on a risk-adjusted
+      # basis over the 14-day window.  This warrants immediate investigation.
+      - alert: ModelLiveSharpeNegative
+        expr: |
+          apex_model_live_sharpe_14d < 0
+          AND apex_model_live_sharpe_14d != 0
+        for: 30m
+        labels:
+          severity: warning
+          team:     mlops
+          phase:    "07"
+        annotations:
+          summary: "Live Sharpe is negative: {{ $value | humanize }}"
+          description: >
+            The 14-day rolling live Sharpe has gone negative ({{ $value }}).
+            This indicates the strategy is losing on a risk-adjusted basis.
+            Actions to consider:
+              1. Review recent fills in Alpaca: https://app.alpaca.markets
+              2. Check signal quality in Grafana (port 3000)
+              3. Consider reducing position sizes in configs/live_trading.yaml
+              4. If Sharpe < -0.5, consider engaging kill switch
+          runbook_url: "docs/GO_LIVE_RUNBOOK.md#5-how-to-halt-trading-immediately"
+
+      # ── Backtest Sharpe unavailable ────────────────────────────────────────
+      # Fires when apex_model_backtest_sharpe is 0 — meaning model_monitor
+      # could not fetch a production run from MLflow.  Drift alerts become
+      # unreliable when the baseline is unknown.
+      - alert: ModelBacktestSharpeUnavailable
+        expr: apex_model_backtest_sharpe == 0
+        for: 2h
+        labels:
+          severity: warning
+          team:     mlops
+          phase:    "07"
+        annotations:
+          summary: "MLflow production Sharpe baseline is 0 / unavailable"
+          description: >
+            apex_model_backtest_sharpe == 0 for 2 hours.
+            model_monitor cannot reach MLflow or no production-tagged run exists.
+            Drift alerts (ModelSharpeDrift) are unreliable without this baseline.
+            Actions:
+              1. Check MLflow: http://localhost:5000
+              2. Verify a run has been tagged production=true
+              3. Check model-monitor logs: docker compose logs model-monitor
+          runbook_url: "docs/GO_LIVE_RUNBOOK.md"
+
+      # ── Model monitor poll stale ───────────────────────────────────────────
+      # Fires if the model monitor has not completed a poll cycle in 3 hours
+      # (3 × POLL_INTERVAL_SECONDS).  Catches hang scenarios where the process
+      # is running but the poll thread is blocked.
+      - alert: ModelMonitorPollStale
+        expr: (time() - apex_model_monitor_last_poll_timestamp) > 10800
+        for: 15m
+        labels:
+          severity: warning
+          team:     mlops
+          phase:    "07"
+        annotations:
+          summary: "Model monitor has not polled in {{ $value | humanizeDuration }}"
+          description: >
+            apex_model_monitor_last_poll_timestamp is {{ $value | humanizeDuration }} old.
+            The model-monitor process may be hung (Alpaca or MLflow call blocked).
+            Restart: docker compose restart model-monitor

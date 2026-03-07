@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: execution
+  namespace: apex
+  labels:
+    app: execution
+    app.kubernetes.io/part-of: apex
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: execution
+  template:
+    metadata:
+      labels:
+        app: execution
+    spec:
+      terminationGracePeriodSeconds: 40
+      containers:
+        - name: execution
+          image: apex/execution:latest
+          imagePullPolicy: IfNotPresent
+          command: ["python", "-m", "services.execution.main"]
+          envFrom:
+            - configMapRef:
+                name: apex-config
+          env:
+            - name: ALPACA_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: apex-alpaca-secret
+                  key: api_key
+            - name: ALPACA_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: apex-alpaca-secret
+                  key: secret_key
+            - name: TIMESCALE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: apex-db-secret
+                  key: password
+          readinessProbe:
+            exec:
+              command: ["python", "-c", "import services.execution; print('ok')"]
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command: ["python", "-c", "import services.execution; print('ok')"]
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"

@@ -1,0 +1,99 @@
+# APEX Platform Configuration
+# CF-10 FIX 2026-02-27: Duplicate take_profit_pct / stop_loss_pct keys REMOVED.
+# First occurrences had wrong values that silently shadowed each other in PyYAML.
+# Run: yamllint configs/app.yaml   to verify no duplicate keys remain.
+# Run: python3 -c "import yaml,sys; yaml.safe_load(open('configs/app.yaml'))" to check.
+
+app:
+  name: APEX
+  version: "1.0.0"
+  environment: paper   # NEVER change to "live"
+
+# ─── Data sources ────────────────────────────────────────────────────────────
+data:
+  data_root: "${DATA_ROOT:-/data/train}"   # FIXED Step-6D: was /home/kironix/train hardcoded
+  symbols:
+    - SPY
+    - AAPL
+    - MSFT
+    - AMZN
+    - NVDA
+    - TSLA
+    - META
+  resolution: daily
+
+# ─── Risk limits ─────────────────────────────────────────────────────────────
+risk:
+  # Per-symbol position caps
+  symbols:
+    SPY:
+      max_position_pct: 0.95      # SPY is primary; allow near-full position
+    NVDA:
+      max_position_pct: 0.015     # CF Bug-A fix: explicit NVDA cap (was never loaded)
+    TSLA:
+      max_position_pct: 0.010     # CF Bug-A fix: explicit TSLA cap (was never loaded)
+
+  # Portfolio-level risk parameters
+  portfolio:
+    max_daily_loss_pct: 0.05      # halt at -5% intraday
+    max_drawdown_pct: 0.10        # halt at -10% from peak
+    max_leverage: 1.0             # no leverage in paper trading
+
+  # Trade-level risk parameters
+  trade:
+    # CF-10 FIX: only ONE take_profit_pct key (duplicate removed)
+    take_profit_pct: 0.06         # close long at +6% gain
+    # CF-10 FIX: only ONE stop_loss_pct key (duplicate removed)
+    stop_loss_pct: 0.03           # close long at -3% loss
+    trailing_stop_pct: 0.05       # trailing stop at 5% from peak
+
+# ─── Kafka ───────────────────────────────────────────────────────────────────
+kafka:
+  bootstrap_servers: "localhost:9092"
+  topics:
+    market_raw: "market.raw"
+    market_engineered: "market.engineered"
+    predictions_tft: "predictions.tft"
+    alpha_signals: "alpha.signals"
+    signals_scored: "signals.scored"
+    risk_approved: "risk.approved"
+  # MD-1 FIX: retention limits to prevent disk fill
+  retention_hours: 168        # 7 days
+  retention_bytes: 10737418240  # 10 GB per topic
+  segment_bytes: 1073741824     # 1 GB segments
+
+# ─── Database ────────────────────────────────────────────────────────────────
+database:
+  timescale:
+    host: "localhost"
+    port: 5432
+    dbname: "apexdb"
+    user: "apex"
+    # password: must be set via POSTGRES_PASSWORD env var ONLY — never hardcode
+
+  redis:
+    host: "localhost"
+    port: 6379
+    # password: must be set via REDIS_PASSWORD env var if needed
+
+# ─── Alpaca (paper only) ─────────────────────────────────────────────────────
+alpaca:
+  base_url: "https://paper-api.alpaca.markets"  # hardcoded paper endpoint
+  # api_key and api_secret: set via ALPACA_API_KEY / ALPACA_API_SECRET env vars
+
+# ─── Model ───────────────────────────────────────────────────────────────────
+model:
+  tft_onnx_path: "models/tft_latest.onnx"
+  signal_max_age_seconds: 600   # Step-5C TFT staleness gate
+
+# ─── Services ────────────────────────────────────────────────────────────────
+services:
+  data_ingestion:   { port: 8001 }
+  feature_eng:      { port: 8002 }
+  model_inference:  { port: 8003 }
+  risk_engine:      { port: 8004 }
+  execution:        { port: 8005 }
+  exit_monitor:     { port: 8010 }
+  lean_alpha:       { port: 8014 }
+  signal_engine:    { port: 8015 }
+  signal_provider:  { port: 8000 }

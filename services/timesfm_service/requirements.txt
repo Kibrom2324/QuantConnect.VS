@@ -1,0 +1,23 @@
+# APEX TimesFM Service — Python dependencies
+# Pin minimum versions; Docker build will resolve compatible uppers.
+
+# ── Google TimesFM foundation model ──────────────────────────────────────────
+timesfm[torch]>=1.2.0
+
+# ── Web framework & server ────────────────────────────────────────────────────
+fastapi>=0.111.0
+uvicorn[standard]>=0.30.0
+
+# ── Observability ─────────────────────────────────────────────────────────────
+prometheus-client>=0.20.0
+structlog>=24.0.0
+
+# ── Storage / messaging ───────────────────────────────────────────────────────
+redis>=5.0.0
+
+# ── Numerical / data ──────────────────────────────────────────────────────────
+numpy>=1.26.0
+pandas>=2.2.0
+
+# ── HTTP client (used by train_timesfm.py for validation calls) ──────────────
+httpx>=0.27.0

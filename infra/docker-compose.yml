@@ -1,0 +1,620 @@
+---
+# APEX Platform — Docker Compose
+# HI-8 FIX 2026-02-27: Redis now has AOF persistence, healthcheck, and depends_on
+# Step 6C / Step 6F: Redis production config + Kafka retention limits
+version: "3.9"
+
+networks:
+  apex_net:
+    driver: bridge
+
+volumes:
+  redis_data:         { driver: local }
+  kafka_data:         { driver: local }
+  postgres_data:      { driver: local }
+  timescaledb_data:   { driver: local }
+  grafana_data:       { driver: local }
+  mlflow_data:        { driver: local }
+  dlq_data:           { driver: local }   # persistent DLQ SQLite (replaces /tmp)
+  prometheus_data:    { driver: local }   # Prometheus TSDB persistence (30d)
+
+services:
+
+  # ─── Redis ────────────────────────────────────────────────────────────────
+  # HI-8 FIX: Added AOF persistence, healthcheck, restart policy
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --appendfsync everysec
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    networks: [apex_net]
+    ports:
+      - "16379:6379"
+
+  # ─── Redis Exporter (Prometheus metrics for Redis) ────────────────────────
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.61.0
+    environment:
+      REDIS_ADDR: "redis:6379"
+    ports:
+      - "9121:9121"
+    networks: [apex_net]
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  # ─── Kafka (KRaft mode — no ZooKeeper) ───────────────────────────────────
+  kafka:
+    image: apache/kafka:3.7.0
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:9094
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093,PLAINTEXT_HOST://0.0.0.0:9094
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      # MD-1 FIX 2026-02-27: retention limits to prevent disk fill
+      KAFKA_LOG_RETENTION_HOURS: "168"         # 7 days
+      KAFKA_LOG_RETENTION_BYTES: "10737418240" # 10 GB per topic
+      KAFKA_LOG_SEGMENT_BYTES: "1073741824"    # 1 GB segments
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    ports:
+      - "9092:9092"
+      - "9094:9094"   # external host access
+    networks: [apex_net]
+    restart: unless-stopped
+
+  # ─── TimescaleDB ──────────────────────────────────────────────────────────
+  timescaledb:
+    image: timescale/timescaledb:latest-pg15
+    container_name: apex-timescaledb
+    environment:
+      POSTGRES_DB:               apex
+      POSTGRES_USER:             apex_user
+      POSTGRES_PASSWORD:         apex_pass
+      POSTGRES_HOST_AUTH_METHOD: trust
+    volumes:
+      - timescaledb_data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "15432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U apex_user -d apex"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+    networks: [apex_net]
+
+  # ─── Schema Registry ──────────────────────────────────────────────────────
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.6.0
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: kafka:9092
+    depends_on:
+      - kafka
+    ports:
+      - "8081:8081"
+    networks: [apex_net]
+    restart: unless-stopped
+
+  # ─── Prometheus ───────────────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - ./prometheus/model_alerts.yml:/etc/prometheus/model_alerts.yml:ro
+      - ./prometheus/feedback_alerts.yml:/etc/prometheus/feedback_alerts.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=30d
+      - --web.enable-lifecycle
+    ports:
+      - "9090:9090"
+    networks: [apex_net]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:9090/-/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  # ─── Signal Engine (Kafka consumer → ensemble scorer → Kafka producer) ────
+  signal-engine:
+    build: { context: .., dockerfile: services/signal_engine/Dockerfile }
+    ports:
+      - "8014:8006"
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS:       "kafka:9092"
+      SIGNAL_RAW_TOPIC:              "apex.signals.raw"
+      SIGNAL_SCORED_TOPIC:           "apex.signals.scored"
+      REDIS_HOST:                    redis
+      REDIS_PORT:                    "6379"
+      MLFLOW_TRACKING_URI:           "http://mlflow:5000"
+      ENABLE_PREDICTION_LINEAGE:     ${ENABLE_PREDICTION_LINEAGE:-false}
+      ENABLE_ISOTONIC_CALIBRATION:   ${ENABLE_ISOTONIC_CALIBRATION:-false}
+      LOG_LEVEL:                     ${LOG_LEVEL:-INFO}
+      PYTHONUNBUFFERED:              "1"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8006/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks: [apex_net]
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+      mlflow:
+        condition: service_started
+
+  # ─── Execution Engine (Kafka consumer → Alpaca orders → decision records) ─
+  execution-engine:
+    build: { context: .., dockerfile: services/execution/Dockerfile }
+    ports:
+      - "8015:8006"
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS:       "kafka:9092"
+      EXECUTION_SIGNAL_TOPIC:        "apex.risk.approved"
+      EXECUTION_RESULT_TOPIC:        "apex.orders.results"
+      ALPACA_API_KEY:                ${ALPACA_API_KEY:?Set ALPACA_API_KEY in .env}
+      ALPACA_SECRET_KEY:             ${ALPACA_SECRET_KEY:?Set ALPACA_SECRET_KEY in .env}
+      ALPACA_BASE_URL:               ${ALPACA_BASE_URL:-https://paper-api.alpaca.markets}
+      REDIS_HOST:                    redis
+      REDIS_PORT:                    "6379"
+      ENABLE_DECISION_RECORDS:       ${ENABLE_DECISION_RECORDS:-false}
+      TIMESCALEDB_DSN:               "postgresql://apex_user:apex_pass@timescaledb:5432/apex"
+      LOG_LEVEL:                     ${LOG_LEVEL:-INFO}
+      PYTHONUNBUFFERED:              "1"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8006/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks: [apex_net]
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+      timescaledb:
+        condition: service_healthy
+
+  # ─── Model Monitor (Phase 07) ─────────────────────────────────────────────
+  model-monitor:
+    build: { context: .., dockerfile: services/model_monitor/Dockerfile }
+    ports:
+      - "8020:8020"
+    environment:
+      ALPACA_BASE_URL:   ${ALPACA_BASE_URL:-https://paper-api.alpaca.markets}
+      ALPACA_API_KEY:    ${ALPACA_API_KEY:?Set ALPACA_API_KEY in .env}
+      ALPACA_SECRET_KEY: ${ALPACA_SECRET_KEY:?Set ALPACA_SECRET_KEY in .env}
+      MLFLOW_TRACKING_URI:    "http://mlflow:5000"
+      MLFLOW_EXPERIMENT_NAME: ${MLFLOW_EXPERIMENT_NAME:-apex-walk-forward}
+      REDIS_HOST:             redis
+      REDIS_PORT:             "6379"
+      REDIS_PASSWORD:         ${REDIS_PASSWORD:-}
+      POLL_INTERVAL_SECONDS:  "3600"
+      DRIFT_ALERT_THRESHOLD:  "0.30"
+      LOOKBACK_DAYS:          "14"
+      METRICS_PORT:           "8020"
+    networks: [apex_net]
+    depends_on:
+      redis:
+        condition: service_healthy
+      mlflow:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8020/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  # ─── Grafana ──────────────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:10.4.0
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD:          ${GRAFANA_PASSWORD:-admin}
+      GF_SECURITY_ADMIN_USER:              admin
+      GF_AUTH_ANONYMOUS_ENABLED:           "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/apex-trading.json
+      GF_FEATURE_TOGGLES_ENABLE:           publicDashboards
+      GF_SERVER_ROOT_URL:                  http://localhost:3000
+    ports:
+      - "3000:3000"
+    networks: [apex_net]
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+
+  # ─── MLflow Experiment Tracking ──────────────────────────────────────────
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:latest
+    user: "0:0"
+    command: >
+      mlflow server
+        --host 0.0.0.0
+        --port 5000
+        --backend-store-uri sqlite:////mlflow/mlflow.db
+        --default-artifact-root /mlflow/artifacts
+    ports:
+      - "5001:5000"
+    volumes:
+      - mlflow_data:/mlflow
+    networks: [apex_net]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ─── Signal Provider API ──────────────────────────────────────────────────
+  signal-provider:
+    build: { context: .., dockerfile: MyProject/Dockerfile }
+    command: uvicorn MyProject.signal_provider_api:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    volumes:
+      - dlq_data:/var/lib/apex/dlq   # persistent DLQ SQLite (Tier-0 fix)
+    networks: [apex_net]
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+    environment:
+      # ── Secrets: must match .env or be exported in shell before compose up ──
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      ALPACA_API_KEY: ${ALPACA_API_KEY:?Set ALPACA_API_KEY in .env}
+      # CF fix: use ALPACA_SECRET_KEY (canonical name used by all services)
+      ALPACA_SECRET_KEY: ${ALPACA_SECRET_KEY:?Set ALPACA_SECRET_KEY in .env}
+      ALPACA_BASE_URL: "https://paper-api.alpaca.markets"
+      TRADING_ENABLED: ${TRADING_ENABLED:-false}
+      KILL_SWITCH: ${KILL_SWITCH:-false}
+
+  # ─── Signal Provider Microservice (FastAPI, health + metrics) ────────────
+  signal-provider-svc:
+    build:
+      context: ..
+      dockerfile: services/signal_provider/Dockerfile
+    ports:
+      - "8007:8002"   # host:8007 → container:8002
+    environment:
+      REDIS_HOST:     redis
+      REDIS_PORT:     "6379"
+      PORT:           "8002"
+      LOG_LEVEL:      ${LOG_LEVEL:-INFO}
+      PYTHONUNBUFFERED: "1"
+    networks: [apex_net]
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # ─── Risk Engine (Kafka consumer + FastAPI health/metrics on :8004) ───────
+  risk-engine:
+    build:
+      context: ..
+      dockerfile: services/risk_engine/Dockerfile
+    ports:
+      - "8008:8004"  # host:8008 → container:8004
+    environment:
+      REDIS_HOST:              redis
+      REDIS_PORT:              "6379"
+      REDIS_URL:               "redis://redis:6379/0"
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+      RISK_INPUT_TOPIC:        "apex.signals.scored"
+      RISK_APPROVED_TOPIC:     "apex.risk.approved"
+      PORT:                    "8004"
+      LOG_LEVEL:               ${LOG_LEVEL:-INFO}
+      PYTHONUNBUFFERED:        "1"
+    networks: [apex_net]
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8004/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ─── TFT Microservice (inference + Prometheus metrics on :8005) ──────────
+  tft-service:
+    build:
+      context: ..
+      dockerfile: services/tft_service/Dockerfile
+    ports:
+      - "8009:8005"  # host:8009 → container:8005
+    volumes:
+      - ../models:/app/models
+    environment:
+      REDIS_HOST:          redis
+      REDIS_PORT:          "6379"
+      MLFLOW_TRACKING_URI: "http://mlflow:5000"
+      PORT:                "8005"
+      LOG_LEVEL:           ${LOG_LEVEL:-INFO}
+      PYTHONUNBUFFERED:    "1"
+    # GPU: uncomment when nvidia-container-runtime is active as default Docker runtime
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+    networks: [apex_net]
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      mlflow:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8005/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+
+  # ─── TimesFM Microservice (Google TimesFM-1.0-200M, inference on :8010) ──
+  timesfm-service:
+    build:
+      context: ..
+      dockerfile: services/timesfm_service/Dockerfile
+    container_name: apex-timesfm
+    runtime: nvidia
+    ports:
+      - "8010:8010"
+    environment:
+      REDIS_HOST:              redis
+      REDIS_PORT:              "6379"
+      TIMESFM_SERVICE_URL:     "http://timesfm-service:8010"
+      PORT:                    "8010"
+      LOG_LEVEL:               ${LOG_LEVEL:-INFO}
+      PYTHONUNBUFFERED:        "1"
+      NVIDIA_VISIBLE_DEVICES:  all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+    networks: [apex_net]
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8010/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s   # model download + initialisation takes ~2 min first run
+
+  # ─── Social Ingest (Reddit + StockTwits) ────────────────────────────────
+  social-ingest:
+    build: { context: ../twitter_tft, dockerfile: Dockerfile }
+    command: python -m jobs.ingest
+    restart: unless-stopped
+    networks: [apex_net]
+    depends_on:
+      redis:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+    environment:
+      DATABASE_URL:            "postgresql+asyncpg://apex:${POSTGRES_PASSWORD}@timescaledb:5432/apexdb"
+      REDIS_URL:               "redis://redis:6379/0"
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+      REDDIT_CLIENT_ID:        ${REDDIT_CLIENT_ID:?Set REDDIT_CLIENT_ID in .env}
+      REDDIT_CLIENT_SECRET:    ${REDDIT_CLIENT_SECRET:?Set REDDIT_CLIENT_SECRET in .env}
+      REDDIT_USER_AGENT:       ${REDDIT_USER_AGENT:-APEX:social-ingest:v1}
+      STOCKTWITS_ACCESS_TOKEN: ${STOCKTWITS_ACCESS_TOKEN:-}
+      SYMBOLS:                 ${SOCIAL_SYMBOLS:-NVDA,AAPL,MSFT,TSLA}
+      INGEST_INTERVAL_SECONDS: "30"
+      LOG_LEVEL:               "INFO"
+
+  # ─── Social Sentiment (FinBERT) ──────────────────────────────────────────
+  social-sentiment:
+    build: { context: ../twitter_tft, dockerfile: Dockerfile }
+    command: python -m jobs.sentiment
+    restart: unless-stopped
+    networks: [apex_net]
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    environment:
+      DATABASE_URL:         "postgresql+asyncpg://apex:${POSTGRES_PASSWORD}@timescaledb:5432/apexdb"
+      REDIS_URL:            "redis://redis:6379/0"
+      FINBERT_DEVICE:       ${FINBERT_DEVICE:-cpu}
+      FINBERT_MODEL:        ${FINBERT_MODEL:-ProsusAI/finbert}
+      SENTIMENT_BATCH_SIZE: ${SENTIMENT_BATCH_SIZE:-32}
+      LOG_LEVEL:            "INFO"
+
+  # ─── Social Feature Extraction ───────────────────────────────────────────
+  social-features:
+    build: { context: ../twitter_tft, dockerfile: Dockerfile }
+    command: python -m jobs.feature_extract
+    restart: unless-stopped
+    networks: [apex_net]
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    environment:
+      DATABASE_URL:      "postgresql+asyncpg://apex:${POSTGRES_PASSWORD}@timescaledb:5432/apexdb"
+      REDIS_URL:         "redis://redis:6379/0"
+      SYMBOLS:           ${SOCIAL_SYMBOLS:-NVDA,AAPL,MSFT,TSLA}
+      LAG_BUFFER_MINUTES: "5"
+      BAR_SIZE:           "15m"
+      LOG_LEVEL:          "INFO"
+
+  # ─── Social → Kafka Publisher ────────────────────────────────────────────
+  social-kafka-publish:
+    build: { context: ../twitter_tft, dockerfile: Dockerfile }
+    command: python -m jobs.publish_to_kafka
+    restart: unless-stopped
+    networks: [apex_net]
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+    environment:
+      DATABASE_URL:            "postgresql+asyncpg://apex:${POSTGRES_PASSWORD}@timescaledb:5432/apexdb"
+      REDIS_URL:               "redis://redis:6379/0"
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+      KAFKA_SOCIAL_TOPIC:      "market.social"
+      SYMBOLS:                 ${SOCIAL_SYMBOLS:-NVDA,AAPL,MSFT,TSLA}
+      BAR_SIZE:                "15m"
+      LOG_LEVEL:               "INFO"
+
+  # ─── Model Scheduler (APScheduler daily retrain + weekly optimize) ────────
+  model-scheduler:
+    build:
+      context: ..
+      dockerfile: Lean/Dockerfile
+      target: base
+    command: python -m services.model_manager.scheduler
+    restart: unless-stopped
+    networks: [apex_net]
+    depends_on:
+      redis:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+      mlflow:
+        condition: service_started
+    environment:
+      REDIS_HOST:               "redis"
+      REDIS_PORT:               "6379"
+      DATABASE_URL:             "postgresql+asyncpg://apex:${POSTGRES_PASSWORD}@timescaledb:5432/apexdb"
+      MLFLOW_TRACKING_URI:      "http://mlflow:5000"
+      LOG_LEVEL:                "INFO"
+
+  # ─── APEX Dashboard (Next.js 14) ─────────────────────────────────────────
+  apex-dashboard:
+    build:
+      context: ../apex-dashboard
+      dockerfile: Dockerfile
+    ports:
+      - "3001:3001"
+    environment:
+      APEX_API_URL: http://signal-provider:8000
+      MLFLOW_API_URL: http://mlflow:5000
+      REDIS_HOST: redis
+      ALPACA_BASE_URL: ${ALPACA_BASE_URL:-https://paper-api.alpaca.markets}
+      ALPACA_API_KEY: ${ALPACA_API_KEY}
+      ALPACA_SECRET_KEY: ${ALPACA_SECRET_KEY}
+      USE_MOCK_DATA: ${USE_MOCK_DATA:-false}
+      HOSTNAME: 0.0.0.0
+    networks: [apex_net]
+    depends_on:
+      - signal-provider
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://$(hostname -i):3001/api/health >/dev/null"]
+      interval: 30s
+      timeout: 10s
+
+  # ─── Data Ingestion (Alpaca → TimescaleDB) ───────────────────────────────
+  data_ingestion:
+    build:
+      context: ..
+      dockerfile: services/data_ingestion/Dockerfile
+    container_name: apex-data-ingestion
+    environment:
+      ALPACA_PAPER_KEY:    ${ALPACA_PAPER_KEY:-}
+      ALPACA_PAPER_SECRET: ${ALPACA_PAPER_SECRET:-}
+      ALPACA_PAPER_URL:    ${ALPACA_PAPER_URL:-https://paper-api.alpaca.markets}
+      DATABASE_URL:        "postgresql://apex_user:apex_pass@timescaledb:5432/apex"
+      REDIS_HOST:          redis
+      PORT:                "8001"
+    ports:
+      - "8011:8001"
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout:  10s
+      start_period: 60s
+      retries: 3
+    restart: unless-stopped
+    networks: [apex_net]
+    labels:
+      prometheus.scrape: "true"
+      prometheus.port:   "8001"
+      prometheus.path:   "/metrics"
+      retries: 3
+      start_period: 15s
+
+  # ─── Feature Engineering (bars → indicators → features table) ───────────────
+  feature_engineering:
+    build:
+      context: ..
+      dockerfile: services/feature_engineering/Dockerfile
+    container_name: apex-feature-engineering
+    environment:
+      DATABASE_URL: "postgresql://apex_user:apex_pass@timescaledb:5432/apex"
+      REDIS_HOST:   redis
+      PORT:         "8003"
+    ports:
+      - "8013:8003"
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8003/health', timeout=5)"]
+      interval: 30s
+      timeout:  10s
+      start_period: 90s
+      retries: 3
+    restart: unless-stopped
+    networks: [apex_net]
+    labels:
+      prometheus.scrape: "true"
+      prometheus.port:   "8003"
+      prometheus.path:   "/metrics"

@@ -1,0 +1,154 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# APEX Paper Trading Configuration
+# configs/paper_trading.yaml
+#
+# CONSTRAINTS (never relaxed without explicit review):
+#   - environment must remain "paper" — loader refuses to start if set to "live"
+#   - kill switch activates within 5 seconds of daily loss breach
+#   - all position sizes are conservative by default
+#   - Alpaca endpoint is paper-only; key validation happens at startup
+#
+# This file is COMPLETELY ISOLATED from configs/app.yaml.  Services started
+# with APEX_CONFIG=configs/paper_trading.yaml will NEVER load app.yaml.
+# ─────────────────────────────────────────────────────────────────────────────
+
+app:
+  name: APEX-PAPER
+  version: "1.0.0"
+  # GUARD: services abort startup if this is not "paper"
+  environment: paper
+
+# ─── Universe ─────────────────────────────────────────────────────────────────
+# Top-20 QQQ constituents by market-cap weight (as of 2026-02).
+# Only these symbols may be traded in paper mode.
+universe:
+  mode: whitelist                 # reject any signal not in this list
+  symbols:
+    - AAPL
+    - MSFT
+    - NVDA
+    - AMZN
+    - META
+    - TSLA
+    - GOOGL
+    - GOOG
+    - AVGO
+    - ASML
+    - AMD
+    - COST
+    - QCOM
+    - NFLX
+    - AZN
+    - ADBE
+    - PEP
+    - CSCO
+    - INTC
+    - INTU
+
+# ─── Trading hours (US Eastern) ───────────────────────────────────────────────
+trading_hours:
+  timezone: America/New_York
+  open:  "09:30"    # no signals before market open
+  close: "16:00"    # no new signals after close; flatten if '--eod-flatten' set
+  eod_flatten: false            # set true to auto-square all positions at 15:45
+  eod_flatten_time: "15:45"
+
+# ─── Risk limits ──────────────────────────────────────────────────────────────
+risk:
+  # Per-symbol position size cap — 2% of portfolio NAV
+  max_position_pct: 0.02          # HARD LIMIT — risk engine blocks above this
+
+  # Portfolio-level caps
+  portfolio:
+    max_total_risk_pct: 0.10      # total risk allocation across all open positions
+    max_leverage: 1.0             # no leverage — paper or live
+    max_open_positions: 10        # at most 10 concurrent positions
+
+  # Daily loss kill-switch — fires within 5 s of breach
+  daily_loss:
+    limit_pct: 0.03               # -3 % of NAV triggers kill switch
+    check_interval_seconds: 5     # poll Alpaca account equity every 5 s
+    alert_pct: 0.02               # warn at -2 % (80 % of limit)
+    kill_switch_redis_key: "apex:kill_switch"
+
+  # Per-trade exits
+  trade:
+    take_profit_pct: 0.04         # +4 % take-profit (tighter than prod)
+    stop_loss_pct: 0.02           # -2 % stop-loss (tighter than prod)
+    trailing_stop_pct: 0.03       # 3 % trailing stop from peak
+    max_holding_days: 5           # force-exit after 5 days
+
+  # Drawdown
+  drawdown:
+    max_drawdown_pct: 0.06        # -6 % from peak → halt for the day
+
+  # Minimum signal confidence required to trade
+  min_signal_confidence: 0.60     # 0–1; signals below 60 % are filtered
+
+# ─── Kafka ────────────────────────────────────────────────────────────────────
+kafka:
+  bootstrap_servers: "localhost:9092"
+  topics:
+    market_raw:        "paper.market.raw"
+    market_engineered: "paper.market.engineered"
+    predictions_tft:   "paper.predictions.tft"
+    alpha_signals:     "paper.alpha.signals"
+    signals_scored:    "paper.signals.scored"
+    risk_approved:     "paper.risk.approved"
+  # All paper topics are prefixed with "paper." to guarantee isolation
+  consumer_group_prefix: "apex-paper-"
+  lag_alert_threshold: 100        # alert if consumer lag > 100 messages
+  retention_hours: 24             # paper topics: 24h retention only
+
+# ─── Database ─────────────────────────────────────────────────────────────────
+database:
+  timescale:
+    host: "localhost"
+    port: 5432
+    dbname: "apexdb"
+    user:   "apex"
+    # password: POSTGRES_PASSWORD env var
+    schema: "paper"               # write all paper trades to the "paper" schema
+
+  redis:
+    host: "localhost"
+    port: 6379
+    key_prefix: "apex:paper:"     # all Redis keys prefixed — isolated from prod
+
+# ─── Alpaca (paper endpoint ONLY) ─────────────────────────────────────────────
+alpaca:
+  # GUARD: loader validates this string and refuses "api.alpaca.markets" (live)
+  base_url: "https://paper-api.alpaca.markets"
+  # Credentials from env vars only — never hardcoded
+  # Required: ALPACA_API_KEY, ALPACA_SECRET_KEY
+  order_timeout_seconds: 30
+  order_type: "market"
+  time_in_force: "day"
+
+# ─── Monitoring ───────────────────────────────────────────────────────────────
+monitoring:
+  # Daily report saved to logs/paper_trading/YYYY-MM-DD.json
+  report_dir: "logs/paper_trading"
+  # Signal freshness — alert if no signal in this window
+  signal_max_age_seconds: 600
+
+  # Metrics tracked by paper_trading_monitor.py
+  metrics:
+    - realized_pnl
+    - win_rate
+    - avg_holding_time_minutes
+    - signal_confidence_accuracy
+    - ensemble_weight_drift_pct
+    - daily_trade_count
+    - max_drawdown_intraday
+
+# ─── Model ────────────────────────────────────────────────────────────────────
+model:
+  tft_onnx_path: "models/tft_latest.onnx"
+  signal_max_age_seconds: 600
+  ensemble_weights:
+    tft:        0.40
+    xgboost:    0.35
+    factor:     0.25
+  # Weight drift alert — fire if any weight drifts > 15 % from baseline
+  weight_drift_alert_pct: 0.15

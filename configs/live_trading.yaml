@@ -1,0 +1,201 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# APEX Live Trading Configuration
+# configs/live_trading.yaml
+#
+# CONSTRAINTS (enforced by go_live_validator.py and services at startup):
+#   - environment must be "live" — services refuse to start if set to "paper"
+#   - kill switch activates within 5 seconds of any limit breach
+#   - ALL position sizes are tighter than paper_trading.yaml (1% cap vs 2%)
+#   - daily_loss limit is 2% of NAV (tighter than paper's 3%)
+#   - Alpaca endpoint must be the live URL (api.alpaca.markets)
+#   - This file is COMPLETELY ISOLATED from configs/paper_trading.yaml
+#
+# REQUIRED env vars before loading this config:
+#   ALPACA_API_KEY            Live Alpaca API key (NOT a paper key)
+#   ALPACA_SECRET_KEY         Live Alpaca secret key
+#   ALPACA_BASE_URL           Must be https://api.alpaca.markets
+#   TIMESCALEDB_PASSWORD      Database password (min 20 chars)
+#   POLYGON_API_KEY           Live market data key
+#
+# ─────────────────────────────────────────────────────────────────────────────
+
+app:
+  name: APEX-LIVE
+  version: "1.0.0"
+  # GUARD: services abort startup if this is not "live"
+  environment: live
+
+# ─── Universe ─────────────────────────────────────────────────────────────────
+# Conservative starting universe: top-15 QQQ constituents by market cap.
+# Expand only after 30+ days of validated live performance.
+universe:
+  mode: whitelist                 # reject any signal not in this list
+  symbols:
+    - AAPL
+    - MSFT
+    - NVDA
+    - AMZN
+    - META
+    - TSLA
+    - GOOGL
+    - GOOG
+    - AVGO
+    - AMD
+    - COST
+    - QCOM
+    - NFLX
+    - ADBE
+    - INTU
+
+# ─── Trading hours (US Eastern) ───────────────────────────────────────────────
+trading_hours:
+  timezone: America/New_York
+  open:  "09:30"    # no signals before market open
+  close: "16:00"    # no new signals after close
+  # Live trading: always flatten EOD to eliminate overnight gap risk
+  eod_flatten: true
+  eod_flatten_time: "15:45"     # flatten all positions 15 min before close
+
+# ─── Risk limits ──────────────────────────────────────────────────────────────
+risk:
+  # Per-symbol position size cap — 1% of portfolio NAV (HALF of paper mode)
+  max_position_pct: 0.01          # HARD LIMIT — risk engine blocks above this
+
+  # Portfolio-level caps
+  portfolio:
+    max_total_risk_pct: 0.06      # 6% total risk allocation (tighter than paper's 10%)
+    max_leverage: 1.0             # NO leverage — no margin in live trading
+    max_open_positions: 8         # at most 8 concurrent positions (vs 10 in paper)
+
+  # Daily loss kill-switch — fires within 5 s of breach
+  daily_loss:
+    limit_pct: 0.02               # -2% of NAV triggers kill switch (tighter than paper's 3%)
+    check_interval_seconds: 5     # poll Alpaca account equity every 5 s
+    alert_pct: 0.015              # warn at -1.5% (75% of limit)
+    kill_switch_redis_key: "apex:kill_switch"
+
+  # Per-trade exits (tighter than paper)
+  trade:
+    take_profit_pct: 0.03         # +3% take-profit (vs +4% in paper)
+    stop_loss_pct:   0.015        # -1.5% stop-loss (vs -2% in paper)
+    trailing_stop_pct: 0.02       # 2% trailing stop from peak (vs 3% in paper)
+    max_holding_days: 3           # force-exit after 3 days (vs 5 in paper)
+
+  # Drawdown — circuit breaker also monitors this in scripts/circuit_breaker.py
+  drawdown:
+    max_drawdown_pct: 0.05        # -5% from peak → circuit breaker halts
+    session_reset: daily          # reset high-water mark each calendar day (UTC)
+
+  # Minimum signal confidence required to trade (higher bar than paper)
+  min_signal_confidence: 0.70     # 0–1; signals below 70% are filtered (vs 60% in paper)
+
+  # Concentration risk — no single sector > 40% of NAV
+  concentration:
+    max_sector_pct: 0.40
+    max_correlated_positions: 3   # halt new orders if 3+ positions are >0.85 correlated
+
+# ─── Kafka ────────────────────────────────────────────────────────────────────
+kafka:
+  bootstrap_servers: "localhost:9092"
+  # Live topics are NOT prefixed — they are the canonical production topics
+  topics:
+    market_raw:        "market.raw"
+    market_engineered: "market.engineered"
+    predictions_tft:   "predictions.tft"
+    alpha_signals:     "alpha.signals"
+    signals_scored:    "signals.scored"
+    risk_approved:     "risk.approved"
+  consumer_group_prefix: "apex-live-"
+  lag_alert_threshold: 50         # live: tighter lag threshold (50 vs 100 in paper)
+  retention_hours: 168            # live topics: 7-day retention
+
+# ─── Database ─────────────────────────────────────────────────────────────────
+database:
+  timescale:
+    host: "localhost"
+    port: 5432
+    dbname: "apexdb"
+    user:   "apex"
+    # password: TIMESCALEDB_PASSWORD env var — never hardcoded
+    schema: "live"                # write all live trades to the "live" schema
+
+  redis:
+    host: "localhost"
+    port: 6379
+    key_prefix: "apex:live:"      # live Redis keys isolated from paper
+    # password: REDIS_PASSWORD env var
+
+# ─── Alpaca (live endpoint ONLY) ──────────────────────────────────────────────
+alpaca:
+  # GUARD: go_live_validator.py rejects paper-api.alpaca.markets
+  # The actual URL is loaded from ALPACA_BASE_URL env var at runtime.
+  # This value is used as the documented expected default — do not change.
+  base_url: "https://api.alpaca.markets"
+  # Credentials from env vars only — never hardcoded
+  # Required: ALPACA_API_KEY, ALPACA_SECRET_KEY
+  order_timeout_seconds: 20       # tighter timeout than paper (30s)
+  order_type: "market"
+  time_in_force: "day"
+  # Extended hours trading — disabled for live (liquidity risk)
+  extended_hours: false
+
+# ─── Monitoring ───────────────────────────────────────────────────────────────
+monitoring:
+  # Daily report saved to logs/live_trading/YYYY-MM-DD.json
+  report_dir: "logs/live_trading"
+  # Signal freshness — halt if no signal in this window
+  signal_max_age_seconds: 300     # 5 min (tighter than paper's 10 min)
+  # Circuit breaker is monitored by scripts/circuit_breaker.py
+  circuit_breaker_pid_file: "/tmp/circuit_breaker.pid"
+
+  # Metrics tracked by paper_trading_monitor.py (also applies to live)
+  metrics:
+    - realized_pnl
+    - win_rate
+    - avg_holding_time_minutes
+    - signal_confidence_accuracy
+    - ensemble_weight_drift_pct
+    - daily_trade_count
+    - max_drawdown_intraday
+    - slippage_bps               # live-only: track actual vs expected fill price
+    - commission_total_usd       # live-only: track brokerage costs
+
+  # Live-specific alerts
+  alerts:
+    pnl_alert_threshold_usd: -500     # alert if session P&L drops below -$500
+    max_orders_per_minute: 5          # alert if order rate exceeds this (algo issue)
+    min_fill_rate_pct: 0.95           # alert if fill rate drops below 95%
+
+# ─── Model ────────────────────────────────────────────────────────────────────
+model:
+  tft_onnx_path: "models/tft_latest.onnx"
+  signal_max_age_seconds: 300     # 5 min staleness gate (tighter than paper)
+  ensemble_weights:
+    tft:        0.40
+    xgboost:    0.35
+    factor:     0.25
+  # Weight drift alert — fire if any weight drifts > 10% from baseline
+  weight_drift_alert_pct: 0.10    # tighter than paper (0.15)
+  # Require model retraining if walk-forward OOS Sharpe drops below this
+  retrain_trigger_sharpe: 0.80
+
+# ─── Live-trading specific guards ─────────────────────────────────────────────
+live_guards:
+  # Require go_live_validator.py to have passed within the last 24h
+  require_validator_pass_within_hours: 24
+
+  # Automatically halt if equity drops below this absolute floor
+  # (protects against catastrophic runaway loss)
+  equity_floor_usd: 0            # set to your minimum acceptable account value
+
+  # Block all orders if VIX is above this level (market stress guard)
+  # Requires POLYGON_API_KEY for VIX data
+  max_vix: 35.0                   # halt if VIX > 35
+  vix_check_enabled: true
+
+  # Block orders during FOMC announcement windows (market micro-structure risk)
+  # Format: list of ISO date strings (add manually before each meeting)
+  fomc_blackout_dates: []
+
+  # Require explicit human confirmation before first order of the session
+  require_session_confirmation: false   # set true for extra safety in first weeks

@@ -1,0 +1,192 @@
+---
+name: APEX CI
+
+"on":
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # -----------------------------------------------------------------------
+  # JOB 1: Lint – ruff style + format checks
+  # -----------------------------------------------------------------------
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install ruff
+        run: pip install ruff
+
+      - name: ruff check (linting)
+        # services/ is optional – ignore if it doesn't exist yet
+        run: |
+          ruff check Lean/Algorithm.Python/ MyProject/ \
+            $([ -d services ] && echo services/)
+
+      - name: ruff format (formatting)
+        run: |
+          ruff format --check Lean/Algorithm.Python/ MyProject/ \
+            $([ -d services ] && echo services/)
+
+  # -----------------------------------------------------------------------
+  # JOB 2: Type-check – mypy on the ensemble algorithm
+  # -----------------------------------------------------------------------
+  typecheck:
+    name: typecheck
+    runs-on: ubuntu-latest
+    needs: lint
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install mypy
+        run: pip install mypy
+
+      - name: mypy
+        run: |
+          mypy Lean/Algorithm.Python/APEXEnsembleAlgorithm.py \
+               --ignore-missing-imports
+
+  # -----------------------------------------------------------------------
+  # JOB 3: Tests – pytest
+  # -----------------------------------------------------------------------
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    needs: lint
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install test dependencies
+        run: pip install pytest numpy pandas structlog pyyaml mlflow httpx anyio pytest-asyncio
+
+      - name: Run pytest
+        run: pytest tests/ -v --tb=short
+
+  # -----------------------------------------------------------------------
+  # JOB 4: YAML lint – catches duplicate keys (CF-10) and syntax errors
+  # -----------------------------------------------------------------------
+  yaml-lint:
+    name: yaml-lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install yamllint
+        run: pip install yamllint
+
+      - name: yamllint configs/
+        # Fail only on errors; warn on style issues. Skip if configs/ absent.
+        run: |
+          if [ -d configs ]; then
+            yamllint \
+              -d '{extends: default, rules: {line-length: disable}}' \
+              configs/
+          else
+            echo "configs/ directory not found – skipping yamllint"
+          fi
+
+  # -----------------------------------------------------------------------
+  # JOB 5: Secrets scan – detect-secrets baseline comparison
+  # -----------------------------------------------------------------------
+  secrets-scan:
+    name: secrets-scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install detect-secrets
+        run: pip install detect-secrets
+
+      - name: Create baseline if missing
+        # On first run there is no baseline committed; create a clean one so
+        # the diff step has something to compare against.
+        run: |
+          if [ ! -f .secrets.baseline ]; then
+            detect-secrets scan > .secrets.baseline
+            echo "Baseline created for first run"
+          fi
+
+      - name: Scan for new secrets
+        # Re-scan and compare against the committed baseline.
+        # Exit non-zero if any new secrets are found.
+        run: |
+          detect-secrets scan --baseline .secrets.baseline
+          detect-secrets audit .secrets.baseline --diff
+
+  # -----------------------------------------------------------------------
+  # JOB 6: Docker build – validate all service images build cleanly
+  # Runs after lint + test pass; does NOT push (add registry push in prod).
+  # -----------------------------------------------------------------------
+  docker-build:
+    name: docker-build
+    runs-on: ubuntu-latest
+    needs: [lint, test]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build risk-engine image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: services/risk_engine/Dockerfile
+          push: false
+          tags: apex/risk-engine:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build signal-engine image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: services/signal_engine/Dockerfile
+          push: false
+          tags: apex/signal-engine:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build execution image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: services/execution/Dockerfile
+          push: false
+          tags: apex/execution:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

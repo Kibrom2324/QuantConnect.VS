@@ -1,0 +1,68 @@
+# Environment files
+.env
+.env.*
+
+# Secrets scan baseline (never commit real secrets or a stale baseline)
+*.secrets.baseline
+.secrets.baseline
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pycache
+.pytest_cache/
+
+# Virtual environments
+lean_venv/
+lean311_env/
+.venv/
+.venv-1/
+venv/
+
+# Node
+node_modules/
+.next/
+playwright-report/
+
+# LEAN (upstream QuantConnect — has its own repo)
+Lean/
+
+# Large / external directories
+QuantConnectOrg/
+MyProject/
+lele/
+exter/
+twitter_tft/
+
+# Backtest artefacts
+backtest_metrics.db
+backtest_results.zip
+*.json.bak
+backtest_report_*.txt
+/tmp/run_*.log
+
+# Logs & test results
+logs/
+test-results/
+
+# MLflow
+mlflow.db
+
+# Binary / non-code
+*.pdf
+*.zip
+*.pack
+*.pack.gz
+*.pack.gz.old
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

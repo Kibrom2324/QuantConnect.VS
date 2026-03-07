@@ -1,0 +1,165 @@
+---
+# APEX Prometheus Alert Rules
+# HI-6 FIX 2026-02-27: PipelineStale now fires only during market hours (weekdays 14:00-21:00 UTC)
+# Step 6H implementation
+
+groups:
+  - name: apex_pipeline
+    interval: 60s
+    rules:
+
+      # HI-6 FIX: was firing 24/7 including 2 AM weekends
+      - alert: PipelineStale
+        expr: |
+          (time() - apex_last_signal_timestamp > 300)
+          AND ON() (hour() >= 14 AND hour() < 21)
+          AND ON() (day_of_week() >= 1 AND day_of_week() <= 5)
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "APEX signal pipeline stale during market hours"
+          description: "No signal produced for >5 min during market hours. Last signal {{ $value | humanizeDuration }} ago."
+
+      - alert: KafkaConsumerLag
+        expr: kafka_consumer_group_lag > 1000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Kafka consumer lag high: {{ $labels.topic }}"
+          description: "Consumer group {{ $labels.consumergroup }} has lag {{ $value }} on topic {{ $labels.topic }}"
+
+      - alert: RiskEngineDown
+        expr: up{job="risk_engine"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Risk engine is down"
+          description: "RiskEngine service (port 8004) is not reachable. Kill switch should be active."
+
+      - alert: RedisDown
+        expr: up{job="redis"} == 0
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "Redis is down — kill switch state lost"
+          description: "CF-6: Redis unavailable. Trading should be halted (fail-closed). Check services immediately."
+
+      - alert: HighDailyLoss
+        expr: apex_portfolio_daily_pnl_pct < -0.04
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Daily loss approaching limit: {{ $value | humanizePercentage }}"
+          description: "Portfolio daily P&L is {{ $value }}. Limit is -5%. Auto-halt should trigger at -5%."
+
+  - name: apex_system
+    interval: 60s
+    rules:
+
+      - alert: HighMemory
+        expr: process_resident_memory_bytes{job=~"apex.*"} > 2e9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage on {{ $labels.job }}"
+
+      - alert: SlowOrderExecution
+        expr: histogram_quantile(0.95, rate(apex_order_latency_seconds_bucket[5m])) > 5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Order execution p95 latency > 5s"
+          description: "CF-8: Check Alpaca API timeout config. p95={{ $value }}s"
+
+  - name: apex_tft_service
+    interval: 60s
+    rules:
+
+      - alert: TFTServiceDown
+        expr: up{job="tft_service"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "TFT Service is DOWN"
+          description: >
+            TFT microservice (port 8005) is unreachable.
+            No TFT predictions being generated.
+            Check: docker compose logs tft-service
+
+      - alert: TFTModelNotLoaded
+        expr: apex_tft_model_loaded == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "TFT model not loaded"
+          description: "Service is up but no model has been loaded after 5 minutes. Check Redis registry for a live TFT model."
+
+      - alert: TFTHighLatency
+        expr: >
+          histogram_quantile(0.95,
+            rate(apex_tft_prediction_latency_seconds_bucket[5m])
+          ) > 2.0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "TFT p95 inference latency > 2s"
+          description: "TFT p95 latency is {{ $value }}s. Expected < 0.5s."
+
+      - alert: TFTModelStale
+        expr: apex_tft_model_age_seconds > 172800
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "TFT model is older than 48 hours"
+          description: "Current TFT model is {{ $value | humanizeDuration }} old. Consider triggering a retrain."
+
+      - alert: TFTSharpeDropped
+        expr: apex_tft_model_val_sharpe < 1.0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "TFT validation Sharpe below 1.0"
+          description: "TFT val Sharpe={{ $value | humanize }}. Backtest threshold is 1.0."
+
+      - alert: TFTHighErrorRate
+        expr: rate(apex_tft_prediction_errors_total[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "TFT prediction error rate > 10%"
+          description: "TFT errors/s={{ $value }}. Check model inputs and service logs."
+
+      - alert: SignalProviderSvcDown
+        expr: up{job="signal_provider_svc"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Signal Provider microservice is DOWN"
+          description: "signal-provider-svc (port 8002) is unreachable. Check: docker compose logs signal-provider-svc"
+
+      - alert: MLflowDown
+        expr: mlflow_up == 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "MLflow tracking server is DOWN"
+          description: >
+            MLflow server (port 15000) is unreachable.
+            Model experiment tracking and artifact storage are unavailable.
+            Trading is NOT affected — this is non-critical infrastructure.
+            Fix: docker compose up -d mlflow

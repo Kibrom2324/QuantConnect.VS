@@ -1,0 +1,10 @@
+# conftest.py — pytest root configuration
+# Ensures the workspace root is on sys.path so all top-level packages
+# (services/, shared/, MyProject/) are importable from tests.
+
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))

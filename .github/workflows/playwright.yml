@@ -1,0 +1,101 @@
+name: APEX Playwright Tests
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 6 * * *'   # Daily at 6AM UTC
+
+jobs:
+  test:
+    name: E2E Tests (${{ matrix.browser }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium]
+
+    env:
+      BASE_URL:      http://localhost:3001
+      TEST_EMAIL:    ${{ secrets.TEST_EMAIL }}
+      TEST_PASSWORD: ${{ secrets.TEST_PASSWORD }}
+      USE_MOCK_DATA: "true"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: apex-dashboard/package-lock.json
+
+      - name: Install dependencies
+        working-directory: apex-dashboard
+        run: npm ci
+
+      - name: Install Playwright browsers
+        working-directory: apex-dashboard
+        run: npx playwright install ${{ matrix.browser }} --with-deps
+
+      - name: Build and start APEX
+        working-directory: apex-dashboard
+        run: |
+          npm run build
+          USE_MOCK_DATA=true npm run start &
+          npx wait-on http://localhost:3001/api/health --timeout 60000
+
+      - name: Run Playwright tests
+        working-directory: apex-dashboard
+        run: |
+          BASE_URL=http://localhost:3001 \
+          npx playwright test --project=${{ matrix.browser }} --reporter=html,github
+
+      - name: Upload HTML report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report-${{ matrix.browser }}
+          path: apex-dashboard/playwright-report/
+          retention-days: 14
+
+      - name: Upload failure traces
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: test-results-${{ matrix.browser }}
+          path: apex-dashboard/test-results/
+          retention-days: 7
+
+      - name: Comment on PR
+        uses: actions/github-script@v7
+        if: github.event_name == 'pull_request' && always()
+        with:
+          script: |
+            const fs = require('fs');
+            const p = 'apex-dashboard/test-results/results.json';
+            if (!fs.existsSync(p)) return;
+            const r = JSON.parse(fs.readFileSync(p, 'utf8'));
+            const s = r.stats || {};
+            const passed  = s.expected   || 0;
+            const failed  = s.unexpected || 0;
+            const skipped = s.skipped    || 0;
+            const icon = failed === 0 ? '🟢' : '🔴';
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## ${icon} APEX Tests — \`${{ matrix.browser }}\`\n| ✅ Passed | ❌ Failed | ⏭ Skipped |\n|---|---|---|\n| ${passed} | ${failed} | ${skipped} |\n\n📊 [Download Report](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})`
+            });
+
+      # ── Cleanup ───────────────────────────────────────────────────────────────
+      - name: Stop Docker services
+        if: always()
+        working-directory: .
+        run: docker compose -f infra/docker-compose.yml stop timescaledb redis || true

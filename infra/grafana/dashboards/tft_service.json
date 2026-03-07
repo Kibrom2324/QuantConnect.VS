@@ -1,0 +1,603 @@
+{
+  "uid": "apex-tft-service",
+  "title": "APEX TFT Service",
+  "description": "APEX Temporal Fusion Transformer microservice — predictions, latency, model health, resource usage",
+  "tags": ["apex", "tft", "ml", "inference"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "15s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+
+    {
+      "id": 1,
+      "type": "row",
+      "title": "⚡ Service Status",
+      "collapsed": false,
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 1 }
+    },
+
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "TFT Service Health",
+      "gridPos": { "x": 0, "y": 1, "w": 6, "h": 4 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "orientation": "auto",
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "text": {}
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "DEGRADED", "color": "red" } } },
+            { "type": "value", "options": { "1": { "text": "HEALTHY",  "color": "green" } } }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red",   "value": null },
+              { "color": "green", "value": 1 }
+            ]
+          },
+          "color": { "mode": "thresholds" }
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "apex-prometheus" },
+          "expr": "apex_tft_service_healthy",
+          "legendFormat": "health",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Model Loaded",
+      "gridPos": { "x": 6, "y": 1, "w": 6, "h": 4 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "text": {}
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "NOT LOADED", "color": "red" } } },
+            { "type": "value", "options": { "1": { "text": "LOADED",     "color": "green" } } }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red",   "value": null },
+              { "color": "green", "value": 1 }
+            ]
+          },
+          "color": { "mode": "thresholds" }
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "apex-prometheus" },
+          "expr": "apex_tft_model_loaded",
+          "legendFormat": "loaded",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Val Sharpe",
+      "gridPos": { "x": 12, "y": 1, "w": 6, "h": 4 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "area",
+        "textMode": "value",
+        "text": {}
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red",    "value": null },
+              { "color": "orange", "value": 1.0 },
+              { "color": "green",  "value": 1.2 }
+            ]
+          },
+          "color": { "mode": "thresholds" }
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "apex-prometheus" },
+          "expr": "apex_tft_model_val_sharpe",
+          "legendFormat": "sharpe",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Model Age (hours)",
+      "gridPos": { "x": 18, "y": 1, "w": 6, "h": 4 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "text": {}
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "h",
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green",  "value": null },
+              { "color": "orange", "value": 24 },
+              { "color": "red",    "value": 48 }
+            ]
+          },
+          "color": { "mode": "thresholds" }
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "apex-prometheus" },
+          "expr": "apex_tft_model_age_seconds / 3600",
+          "legendFormat": "age_hours",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "id": 10,
+      "type": "row",
+      "title": "📈 Prediction Performance",
+      "collapsed": false,
+      "gridPos": { "x": 0, "y": 5, "w": 24, "h": 1 }
+    },
+
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Predictions per Minute",
+      "gridPos": { "x": 0, "y": 6, "w": 8, "h": 8 },
+      "options": {
+        "tooltip": { "mode": "multi" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "fixed", "fixedColor": "cyan" },
+          "unit": "short",
+          "custom": { "lineWidth": 2, "fillOpacity": 15 }
+        },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "UP" },    "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "green" } }] },
+          { "matcher": { "id": "byName", "options": "DOWN" },  "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }] },
+          { "matcher": { "id": "byName", "options": "HOLD" },  "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } }] }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "apex-prometheus" },
+          "expr": "rate(apex_tft_predictions_total{direction=\"UP\"}[1m]) * 60",
+          "legendFormat": "UP",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "apex-prometheus" },
+          "expr": "rate(apex_tft_predictions_total{direction=\"DOWN\"}[1m]) * 60",
+          "legendFormat": "DOWN",
+          "refId": "B"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "apex-prometheus" },
+          "expr": "rate(apex_tft_predictions_total{direction=\"HOLD\"}[1m]) * 60",
+          "legendFormat": "HOLD",
+          "refId": "C"
+        }
+      ]
+    },
+
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "P95 Inference Latency (ms)",
+      "gridPos": { "x": 8, "y": 6, "w": 8, "h": 8 },
+      "options": {
+        "tooltip": { "mode": "single" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "custom": { "lineWidth": 2, "fillOpacity": 10 },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green",  "value": null },
+              { "color": "orange", "value": 500 },
+              { "color": "red",    "value": 2000 }
+            ]
+          },
+          "color": { "mode": "thresholds" }
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "apex-prometheus" },
+          "expr": "histogram_quantile(0.95, rate(apex_tft_prediction_latency_seconds_bucket[5m])) * 1000",
+          "legendFormat": "p95 latency",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "apex-prometheus" },
+          "expr": "histogram_quantile(0.50, rate(apex_tft_prediction_latency_seconds_bucket[5m])) * 1000",
+          "legendFormat": "p50 latency",
+          "refId": "B"
+        }
+      ]
+    },
+
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Val Sharpe — Live Model",
+      "gridPos": { "x": 16, "y": 6, "w": 8, "h": 8 },
+      "options": {
+        "tooltip": { "mode": "single" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 3,
+          "custom": { "lineWidth": 2, "fillOpacity": 10 },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red",    "value": null },
+              { "color": "orange", "value": 1.0 },
+              { "color": "green",  "value": 1.2 }
+            ]
+          },
+          "color": { "mode": "thresholds" }
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "apex-prometheus" },
+          "expr": "apex_tft_model_val_sharpe",
+          "legendFormat": "val_sharpe",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "apex-prometheus" },
+          "expr": "apex_tft_model_val_hit_rate",
+          "legendFormat": "val_hit_rate",
+          "refId": "B"
+        }
+      ]
+    },
+
+    {
+      "id": 20,
+      "type": "row",
+      "title": "🎯 Prediction Breakdown",
+      "collapsed": false,
+      "gridPos": { "x": 0, "y": 14, "w": 24, "h": 1 }
+    },
+
+    {
+      "id": 21,
+      "type": "piechart",
+      "title": "Signal Direction Distribution",
+      "gridPos": { "x": 0, "y": 15, "w": 8, "h": 8 },
+      "options": {
+        "reduceOptions": { "calcs": ["sum"] },
+        "pieType": "pie",
+        "legend": { "displayMode": "table", "placement": "right" },
+        "tooltip": { "mode": "single" }
+      },
+      "fieldConfig": {
+        "defaults": { "unit": "short" },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "UP" },   "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "green" } }] },
+          { "matcher": { "id": "byName", "options": "DOWN" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }] },
+          { "matcher": { "id": "byName", "options": "HOLD" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } }] }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "apex-prometheus" },
+          "expr": "sum(apex_tft_predictions_total{direction=\"UP\"})",
+          "legendFormat": "UP",
+          "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "apex-prometheus" },
+          "expr": "sum(apex_tft_predictions_total{direction=\"DOWN\"})",
+          "legendFormat": "DOWN",
+          "refId": "B"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "apex-prometheus" },
+          "expr": "sum(apex_tft_predictions_total{direction=\"HOLD\"})",
+          "legendFormat": "HOLD",
+          "refId": "C"
+        }
+      ]
+    },
+
+    {
+      "id": 22,
+      "type": "timeseries",
+      "title": "Prediction Error Rate",
+      "gridPos": { "x": 8, "y": 15, "w": 8, "h": 8 },
+      "options": {
+        "tooltip": { "mode": "single" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": { "lineWidth": 2, "fillOpacity": 20 },
+          "color": { "mode": "fixed", "fixedColor": "red" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red",   "value": 0.1 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "apex-prometheus" },
+          "expr": "rate(apex_tft_prediction_errors_total[5m])",
+          "legendFormat": "errors/s",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "id": 23,
+      "type": "heatmap",
+      "title": "Signal Score Distribution",
+      "gridPos": { "x": 16, "y": 15, "w": 8, "h": 8 },
+      "options": {
+        "calculate": false,
+        "color": { "scheme": "Spectral", "mode": "scheme" },
+        "tooltip": { "show": true, "yHistogram": false },
+        "legend": { "show": true },
+        "cellRadius": 3
+      },
+      "fieldConfig": {
+        "defaults": { "unit": "short" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "apex-prometheus" },
+          "expr": "rate(apex_tft_prediction_score_bucket[5m])",
+          "legendFormat": "{{le}}",
+          "refId": "A",
+          "format": "heatmap"
+        }
+      ]
+    },
+
+    {
+      "id": 30,
+      "type": "row",
+      "title": "⚙ Resource Usage",
+      "collapsed": false,
+      "gridPos": { "x": 0, "y": 23, "w": 24, "h": 1 }
+    },
+
+    {
+      "id": 31,
+      "type": "timeseries",
+      "title": "GPU Memory Used (MB)",
+      "gridPos": { "x": 0, "y": 24, "w": 8, "h": 7 },
+      "options": {
+        "tooltip": { "mode": "single" },
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "decmbytes",
+          "color": { "mode": "fixed", "fixedColor": "purple" },
+          "custom": { "lineWidth": 2, "fillOpacity": 15 }
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "apex-prometheus" },
+          "expr": "apex_tft_gpu_memory_mb",
+          "legendFormat": "GPU MB",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "id": 32,
+      "type": "gauge",
+      "title": "Concurrent Requests In-Flight",
+      "gridPos": { "x": 8, "y": 24, "w": 8, "h": 7 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "orientation": "auto",
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true,
+        "text": {}
+      },
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "max": 50,
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green",  "value": null },
+              { "color": "orange", "value": 10 },
+              { "color": "red",    "value": 25 }
+            ]
+          },
+          "color": { "mode": "thresholds" }
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "apex-prometheus" },
+          "expr": "apex_tft_requests_in_flight",
+          "legendFormat": "in-flight",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "id": 33,
+      "type": "stat",
+      "title": "Seconds Since Last Prediction",
+      "gridPos": { "x": 16, "y": 24, "w": 8, "h": 7 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "area",
+        "textMode": "value",
+        "text": {}
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green",  "value": null },
+              { "color": "orange", "value": 60 },
+              { "color": "red",    "value": 300 }
+            ]
+          },
+          "color": { "mode": "thresholds" }
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "apex-prometheus" },
+          "expr": "time() - apex_tft_last_prediction_timestamp",
+          "legendFormat": "age",
+          "refId": "A"
+        }
+      ]
+    },
+
+    {
+      "id": 40,
+      "type": "row",
+      "title": "🚨 Active Alerts",
+      "collapsed": false,
+      "gridPos": { "x": 0, "y": 31, "w": 24, "h": 1 }
+    },
+
+    {
+      "id": 41,
+      "type": "table",
+      "title": "Firing Alerts (TFT + APEX)",
+      "gridPos": { "x": 0, "y": 32, "w": 24, "h": 8 },
+      "options": {
+        "showHeader": true,
+        "sortBy": [{ "displayName": "Time", "desc": true }],
+        "footer": { "show": false }
+      },
+      "fieldConfig": {
+        "defaults": { "custom": { "align": "auto", "displayMode": "auto" } },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "severity" },
+            "properties": [
+              {
+                "id": "custom.displayMode",
+                "value": "color-background"
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  { "type": "value", "options": { "critical": { "color": "red",    "text": "CRITICAL" } } },
+                  { "type": "value", "options": { "warning":  { "color": "orange", "text": "WARNING" } } }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "labelsToFields",
+          "options": { "valueLabel": "alertname" }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": { "__name__": true, "job": false },
+            "renameByName": { "alertname": "Alert", "severity": "Severity", "job": "Service" }
+          }
+        }
+      ],
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "apex-prometheus" },
+          "expr": "ALERTS{alertstate=\"firing\", job=~\"tft_service|signal_provider.*|risk_engine|apex.*\"}",
+          "legendFormat": "{{alertname}} | {{severity}}",
+          "refId": "A",
+          "instant": true
+        }
+      ]
+    }
+
+  ],
+
+  "templating": {
+    "list": []
+  },
+
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  }
+}

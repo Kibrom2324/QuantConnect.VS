@@ -1,0 +1,40 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: apex-config
+  namespace: apex
+data:
+  # Kafka
+  KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+
+  # Redis
+  REDIS_URL: "redis://redis:6379/0"
+
+  # Database
+  TIMESCALE_HOST: "timescaledb"
+  TIMESCALE_PORT: "5432"
+  TIMESCALE_DB: "apexdb"
+
+  # MLflow
+  MLFLOW_TRACKING_URI: "http://mlflow:5000"
+  MLFLOW_EXPERIMENT_NAME: "apex-walk-forward"
+
+  # Alpaca (paper trading URL only — live URL is env-specific secret)
+  ALPACA_BASE_URL: "https://paper-api.alpaca.markets"
+
+  # Kafka topics
+  LEAN_ALPHA_IN_TOPIC:   "apex.lean.triggers"
+  LEAN_ALPHA_OUT_TOPIC:  "apex.signals.raw"
+  SIGNAL_INPUT_TOPIC:    "apex.signals.raw"
+  SIGNAL_SCORED_TOPIC:   "apex.signals.scored"
+  RISK_INPUT_TOPIC:      "apex.signals.scored"
+  RISK_APPROVED_TOPIC:   "apex.risk.approved"
+  EXECUTION_SIGNAL_TOPIC: "apex.risk.approved"
+  EXIT_ORDER_TOPIC:      "apex.risk.approved"
+
+  # Kill switch
+  KILL_SWITCH_KEY: "apex:kill_switch"
+
+  # Safety
+  MAX_POSITION_PCT:    "0.02"
+  MAX_DRAWDOWN_LIMIT:  "0.15"

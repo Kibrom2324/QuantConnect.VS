@@ -1,0 +1,32 @@
+# ─── configs/limits.yaml ──────────────────────────────────────────────────────
+# APEX Risk Engine Limits
+#
+# Loaded by services/risk_engine/engine.py at startup (Bug-A FIX 2026-02-27).
+# Path: configs/limits.yaml (relative to workspace root).
+# ──────────────────────────────────────────────────────────────────────────────
+
+# ─── Global defaults (apply unless overridden per-symbol) ────────────────────
+max_position_pct: 0.02          # 2% of portfolio per position (default)
+max_daily_loss_pct: 0.05        # halt trading if intraday P&L < -5%
+max_drawdown: 0.10              # halt if drawdown from peak exceeds 10%
+max_cvar_95: 0.04               # 95% CVaR limit: 4% of portfolio
+max_leverage: 1.0               # no leverage in paper trading
+
+# ─── Per-symbol overrides ────────────────────────────────────────────────────
+per_symbol:
+  SPY:
+    max_position_pct: 0.20      # index ETF — allow larger allocation
+  QQQ:
+    max_position_pct: 0.15
+  AAPL:
+    max_position_pct: 0.05
+  MSFT:
+    max_position_pct: 0.05
+  AMZN:
+    max_position_pct: 0.04
+  META:
+    max_position_pct: 0.04
+  NVDA:
+    max_position_pct: 0.03      # high-vol — tighter cap
+  TSLA:
+    max_position_pct: 0.02      # high-vol — tightest cap

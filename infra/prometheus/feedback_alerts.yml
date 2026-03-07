@@ -1,0 +1,86 @@
+# APEX Feedback Alert Rules — infra/prometheus/feedback_alerts.yml
+# Phase 5: Alerts for calibration, veto precision, OOD, and cost accuracy
+
+groups:
+  - name: apex_feedback_alerts
+    rules:
+      # Calibration Brier score degradation
+      - alert: CalibrationDegraded
+        expr: apex_calibration_brier_score > 0.3
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "Calibration Brier score is high ({{ $value }})"
+          description: "Brier score > 0.3 indicates poor calibration. Daily feedback should refit."
+
+      - alert: CalibrationBrierSpike
+        expr: |
+          (apex_calibration_brier_score - apex_calibration_brier_score offset 1d)
+          / apex_calibration_brier_score offset 1d > 0.2
+        for: 30m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Calibration Brier score spiked >20% from yesterday"
+          description: "Rapid calibration degradation detected. Check for regime change."
+
+      # Regime state monitoring
+      - alert: RegimeUnknown
+        expr: apex_regime_state == 0
+        for: 2h
+        labels:
+          severity: info
+        annotations:
+          summary: "Symbol in UNKNOWN regime for >2h"
+          description: "Regime classifier returned UNKNOWN. New entries should be suppressed."
+
+      # OOD rate spike
+      - alert: OODRateHigh
+        expr: apex_ood_rate > 0.3
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "OOD rate is {{ $value }} (>30% of predictions flagged)"
+          description: "Many predictions are out-of-distribution. Check for market regime shift."
+
+      # Model weight instability
+      - alert: ModelWeightDominant
+        expr: apex_model_weight > 0.6
+        for: 1d
+        labels:
+          severity: warning
+        annotations:
+          summary: "Model weight persistently > 0.6"
+          description: "One model is dominating the ensemble. Check for data quality issues."
+
+      # Veto precision below target
+      - alert: VetoPrecisionLow
+        expr: apex_veto_precision < 0.5
+        for: 7d
+        labels:
+          severity: warning
+        annotations:
+          summary: "Veto precision is {{ $value }} (below 50% target)"
+          description: "Vetoes are not performing better than random. Review veto criteria."
+
+      # Cost estimation accuracy
+      - alert: CostEstimationInaccurate
+        expr: apex_cost_estimation_error_bps > 50
+        for: 3d
+        labels:
+          severity: warning
+        annotations:
+          summary: "Cost estimation error avg is {{ $value }} bps"
+          description: "Cost estimates diverge >50 bps from realized. Recalibrate cost model."
+
+      # Feedback lag
+      - alert: FeedbackLagHigh
+        expr: apex_feedback_lag_seconds > 86400
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "Feedback lag is {{ $value }}s (>24h)"
+          description: "Feedback loop is not running. Check daily_feedback.py CronJob."
