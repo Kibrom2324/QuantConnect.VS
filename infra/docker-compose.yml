@@ -137,6 +137,26 @@ services:
       start_period: 15s
 
   # ─── Signal Engine (Kafka consumer → ensemble scorer → Kafka producer) ────
+  # ─── Signal Generator (TimescaleDB → factor-scored raw signals → Kafka) ──
+  signal-generator:
+    build: { context: .., dockerfile: services/signal_generator/Dockerfile }
+    environment:
+      DATABASE_URL:                  "postgresql://apex_user:apex_pass@timescaledb:5432/apex"
+      TIMESCALEDB_HOST:              "timescaledb"
+      TIMESCALEDB_PORT:              "5432"
+      KAFKA_BOOTSTRAP_SERVERS:       "kafka:9092"
+      SIGNAL_RAW_TOPIC:              "apex.signals.raw"
+      SIGNAL_GEN_INTERVAL:           "60"
+      LOG_LEVEL:                     ${LOG_LEVEL:-INFO}
+      PYTHONUNBUFFERED:              "1"
+    networks: [apex_net]
+    restart: unless-stopped
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+
   signal-engine:
     build: { context: .., dockerfile: services/signal_engine/Dockerfile }
     ports:
@@ -183,6 +203,7 @@ services:
       REDIS_HOST:                    redis
       REDIS_PORT:                    "6379"
       ENABLE_DECISION_RECORDS:       ${ENABLE_DECISION_RECORDS:-false}
+      TRADING_ENABLED:               ${TRADING_ENABLED:-false}
       TIMESCALEDB_DSN:               "postgresql://apex_user:apex_pass@timescaledb:5432/apex"
       LOG_LEVEL:                     ${LOG_LEVEL:-INFO}
       PYTHONUNBUFFERED:              "1"

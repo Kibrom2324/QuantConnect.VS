@@ -55,6 +55,11 @@ ENABLE_DECISION_RECORDS: bool = (
     os.environ.get("ENABLE_DECISION_RECORDS", "false").lower() == "true"
 )
 
+# Trading guard — execution engine will consume but NOT submit orders unless True
+TRADING_ENABLED: bool = (
+    os.environ.get("TRADING_ENABLED", "false").lower() == "true"
+)
+
 # Position risk controls
 MAX_OPEN_POSITIONS = int(optional_env("MAX_OPEN_POSITIONS", "15"))   # max concurrent long+short positions
 PAPER_ORDER_QTY    = float(optional_env("PAPER_ORDER_QTY", "1"))      # shares per order (override for larger sizing)
@@ -511,6 +516,18 @@ class ExecutionAgent:
         symbol = payload["symbol"]
         side   = payload["side"].lower()
         qty    = float(payload.get("quantity", PAPER_ORDER_QTY))
+
+        # Safety gate: reject all orders when trading is disabled
+        if not TRADING_ENABLED:
+            logger.warning(
+                "trading_disabled_skipping_order",
+                symbol=symbol, side=side,
+            )
+            await self._persist_decision(
+                symbol, side, "VETOED", "TRADING_ENABLED=false", payload,
+            )
+            self._consumer.commit(message=msg, asynchronous=False)
+            return
 
         # Rate limit: minimum 2 seconds between any orders
         _ORDER_GAP = float(os.environ.get("ORDER_MIN_GAP_S", "2.0"))

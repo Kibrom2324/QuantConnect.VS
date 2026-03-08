@@ -65,14 +65,14 @@ check_compose() {
     fi
 
     # TimescaleDB
-    if docker compose exec -T timescaledb pg_isready -U apex -d apexdb 2>/dev/null | grep -q "accepting"; then
+    if docker compose exec -T timescaledb pg_isready -U apex_user -d apex 2>/dev/null | grep -q "accepting"; then
         pass "TimescaleDB: accepting connections"
     else
         fail "TimescaleDB: not ready — check: docker compose logs timescaledb"
     fi
 
     # TimescaleDB — verify extension active
-    if docker compose exec -T timescaledb psql -U apex -d apexdb -c \
+    if docker compose exec -T timescaledb psql -U apex_user -d apex -c \
             "SELECT extname FROM pg_extension WHERE extname='timescaledb';" 2>/dev/null | grep -q timescaledb; then
         pass "TimescaleDB: extension loaded"
     else
@@ -80,10 +80,10 @@ check_compose() {
     fi
 
     # MLflow
-    if curl -sf http://localhost:5000/health 2>/dev/null | grep -q .; then
+    if curl -sf http://localhost:5001/health 2>/dev/null | grep -q .; then
         pass "MLflow: /health endpoint OK"
     else
-        fail "MLflow: not responding on port 5000 — check: docker compose logs mlflow"
+        fail "MLflow: not responding on port 5001 — check: docker compose logs mlflow"
     fi
 
     hdr "── APEX Microservices ────────────────────────────────────────────────"
@@ -91,11 +91,10 @@ check_compose() {
     SERVICES=(
         "apex-risk-engine"
         "apex-signal-engine"
-        "apex-lean-alpha"
-        "apex-execution"
-        "apex-data-ingestion"
-        "apex-feature-engineering"
-        "apex-exit-monitor"
+        "apex-signal-generator"
+        "apex-execution-engine"
+        "apex-data_ingestion"
+        "apex-feature_engineering"
     )
 
     for svc in "${SERVICES[@]}"; do
@@ -143,11 +142,12 @@ check_compose() {
     # ─── TimescaleDB data freshness (last 5 min) ──────────────────────────────
     hdr "── TimescaleDB Data Freshness ───────────────────────────────────────"
 
-    TABLES=("market_data" "features" "predictions" "trades")
-    for tbl in "${TABLES[@]}"; do
+    declare -A TABLE_TS_COL=( ["ohlcv_bars"]="time" ["features"]="time" ["decision_records"]="timestamp" )
+    for tbl in "${!TABLE_TS_COL[@]}"; do
+        col="${TABLE_TS_COL[$tbl]}"
         # Returns seconds since latest row; 99999 if table is empty / missing
-        age=$(docker compose exec -T timescaledb psql -U apex -d apexdb -At \
-            -c "SELECT COALESCE(EXTRACT(EPOCH FROM (NOW() - MAX(time)))::int, 99999)
+        age=$(docker compose exec -T timescaledb psql -U apex_user -d apex -At \
+            -c "SELECT COALESCE(EXTRACT(EPOCH FROM (NOW() - MAX($col)))::int, 99999)
                 FROM $tbl;" 2>/dev/null || echo "99999")
         age="${age//[^0-9]/}"   # strip whitespace
         age="${age:-99999}"
@@ -163,9 +163,9 @@ check_compose() {
     # ─── Signal freshness ─────────────────────────────────────────────────────
     hdr "── Signal Freshness ─────────────────────────────────────────────────"
 
-    sig_ts=$(docker compose exec -T redis redis-cli get "apex:last_signal_ts" 2>/dev/null | tr -d '[:space:]')
+    sig_ts=$(docker compose exec -T redis redis-cli get "apex:signal_engine:last_signal_ts" 2>/dev/null | tr -d '[:space:]')
     if [[ -z "$sig_ts" || "$sig_ts" == "nil" ]]; then
-        fail "Last signal timestamp: not found in Redis (key apex:last_signal_ts)"
+        fail "Last signal timestamp: not found in Redis (key apex:signal_engine:last_signal_ts)"
     else
         now_epoch=$(date +%s)
         sig_epoch=$(date -d "$sig_ts" +%s 2>/dev/null || echo 0)
