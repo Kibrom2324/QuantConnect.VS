@@ -4,11 +4,11 @@
 
 ---
 
-## Current state (as of commit `860acb8`)
+## Current state (as of commit `3807b58`)
 
 - `TRADING_ENABLED=true` in `infra/.env` (operator-set).
-- `apex:kill_switch=true` in Redis (operator-set via `docker compose -f infra/docker-compose.yml exec redis redis-cli set apex:kill_switch true`).
-- Net effect: execution engine will accept orders, but risk engine blocks them at the kill switch. **No orders can reach Alpaca right now.**
+- `apex:kill_switch=false` in Redis (cleared 2026-03-08).
+- Net effect: execution engine will accept orders, risk engine will approve qualifying signals. **Orders CAN reach Alpaca — do NOT enable until market open.**
 
 ---
 
