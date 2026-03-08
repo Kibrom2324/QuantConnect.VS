@@ -170,6 +170,8 @@ services:
       MLFLOW_TRACKING_URI:           "http://mlflow:5000"
       ENABLE_PREDICTION_LINEAGE:     ${ENABLE_PREDICTION_LINEAGE:-false}
       ENABLE_ISOTONIC_CALIBRATION:   ${ENABLE_ISOTONIC_CALIBRATION:-false}
+      XGB_SERVICE_URL:               "http://xgb-service:8007"
+      XGB_TIMEOUT_S:                 "2.0"
       LOG_LEVEL:                     ${LOG_LEVEL:-INFO}
       PYTHONUNBUFFERED:              "1"
     healthcheck:
@@ -417,6 +419,36 @@ services:
       timeout: 10s
       retries: 3
       start_period: 90s
+
+  # ─── XGB Microservice (XGBoost inference on :8007) ──────────────────────
+  xgb-service:
+    build:
+      context: ..
+      dockerfile: services/xgb_service/Dockerfile
+    ports:
+      - "8007:8007"
+    volumes:
+      - ../models:/app/models
+    environment:
+      REDIS_HOST:          redis
+      REDIS_PORT:          "6379"
+      MLFLOW_TRACKING_URI: "http://mlflow:5000"
+      PORT:                "8007"
+      LOG_LEVEL:           ${LOG_LEVEL:-INFO}
+      PYTHONUNBUFFERED:    "1"
+    networks: [apex_net]
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+      mlflow:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8007/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
   # ─── TimesFM Microservice (Google TimesFM-1.0-200M, inference on :8010) ──
   timesfm-service:

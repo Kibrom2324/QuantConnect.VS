@@ -57,6 +57,16 @@ KAFKA_BOOTSTRAP   = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9094")
 RAW_TOPIC         = os.getenv("SIGNAL_RAW_TOPIC", "apex.signals.raw")
 SCAN_INTERVAL_SEC = float(os.getenv("SIGNAL_GEN_INTERVAL", "60"))   # seconds between full scan
 
+# Feature columns matching train_xgb.py FEATURE_COLS — included in raw payload
+_FEATURE_COLS = [
+    "returns_1", "returns_5", "returns_15", "returns_60",
+    "rsi_14", "rsi_28", "ema_20", "ema_50", "ema_200",
+    "macd", "macd_signal", "macd_hist",
+    "bb_upper", "bb_lower", "bb_pct",
+    "atr_14", "stoch_k", "stoch_d",
+    "volume_ratio", "vwap_dev", "adx_14",
+]
+
 # Override DATABASE_URL host/port for local vs Docker context
 _DB_HOST = os.getenv("TIMESCALEDB_HOST", "localhost")
 _DB_PORT = int(os.getenv("TIMESCALEDB_PORT", "15432"))
@@ -213,13 +223,16 @@ class SignalGenerator:
         )
         return row
 
-    def _publish(self, symbol: str, factor_score: float, ts: datetime) -> None:
+    def _publish(self, symbol: str, factor_score: float, ts: datetime,
+                 features: Optional[dict] = None) -> None:
         payload = {
             "symbol":       symbol,
             "factor_score": factor_score,
             "ts":           ts.isoformat() if ts else datetime.now(timezone.utc).isoformat(),
             "source":       "signal_generator",
         }
+        if features:
+            payload["features"] = features
         self._producer.produce(
             RAW_TOPIC,
             value=json.dumps(payload).encode("utf-8"),
@@ -241,7 +254,10 @@ class SignalGenerator:
                 continue
             factor_score = compute_factor_score(row)
             ts = row["time"]
-            self._publish(sym, factor_score, ts)
+            # Include raw features so downstream services (xgb, tft) can score
+            features = {col: _safe_float(row[col]) for col in _FEATURE_COLS
+                        if col in row.keys()}
+            self._publish(sym, factor_score, ts, features=features)
             published += 1
 
         self._producer.flush(timeout=10)

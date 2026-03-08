@@ -21,6 +21,8 @@ import asyncio
 import json
 import os
 import threading
+import urllib.request
+import urllib.error
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from zoneinfo import ZoneInfo  # HI-5: DST-aware timezone
@@ -42,6 +44,10 @@ _LLM_REDIS_HOST   = os.environ.get("REDIS_HOST",  "localhost")
 _LLM_REDIS_PORT   = int(os.environ.get("REDIS_PORT", "16379"))
 _LLM_KEY_PREFIX   = "apex:llm:sentiment:"
 
+# XGB inference service URL (matches xgb-service in docker-compose)
+_XGB_SERVICE_URL = os.environ.get("XGB_SERVICE_URL", "http://xgb-service:8007")
+_XGB_TIMEOUT_S   = float(os.environ.get("XGB_TIMEOUT_S", "2.0"))
+
 # Phase 0: feature flags
 ENABLE_ISOTONIC_CALIBRATION: bool = (
     os.environ.get("ENABLE_ISOTONIC_CALIBRATION", "false").lower() == "true"
@@ -62,6 +68,26 @@ def _get_llm_score(symbol: str, r) -> float | None:
         data = json.loads(raw)
         return float(data["sentiment"])
     except Exception:
+        return None
+
+
+def _get_xgb_score(symbol: str, features: dict | None) -> float | None:
+    """Call xgb-service /predict. Returns None on timeout, error, or missing features."""
+    if not features:
+        return None
+    try:
+        body = json.dumps({"symbol": symbol, "features": features}).encode()
+        req = urllib.request.Request(
+            f"{_XGB_SERVICE_URL}/predict",
+            data=body,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=_XGB_TIMEOUT_S) as resp:
+            data = json.loads(resp.read())
+            return float(data["score"])
+    except (urllib.error.URLError, urllib.error.HTTPError, Exception) as exc:
+        logger.debug("xgb_score_unavailable", symbol=symbol, error=str(exc))
         return None
 
 logger = structlog.get_logger(__name__)
@@ -267,6 +293,12 @@ class SignalEngineService:
         if llm is not None:
             payload["llm_score"] = llm
             logger.debug("llm_score_injected", symbol=symbol, llm_score=llm)
+
+        # Inject XGB score from xgb-service (features forwarded from signal-generator)
+        xgb_score = _get_xgb_score(symbol, payload.get("features"))
+        if xgb_score is not None:
+            payload["xgb_score"] = xgb_score
+            logger.debug("xgb_score_injected", symbol=symbol, xgb_score=xgb_score)
 
         # Score (Phase 0: now returns tuple with prediction IDs)
         score, prediction_ids = self._ensemble.score(payload)
