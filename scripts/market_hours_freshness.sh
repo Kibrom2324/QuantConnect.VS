@@ -13,11 +13,9 @@
 
 set -uo pipefail
 
-# Auto-detect repo root so the script works from any directory
-REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-cd "$REPO_ROOT"
-
-export COMPOSE_FILE="${COMPOSE_FILE:-infra/docker-compose.yml}"
+# Load canonical paths (repo root, compose file, service names, etc.)
+source "$(dirname "$0")/lib/paths.sh"
+export COMPOSE_FILE
 
 FORCE=false
 FAILED=0
