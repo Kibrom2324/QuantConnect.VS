@@ -43,12 +43,12 @@ safe to move to live capital.
 ### Secrets
 
 ```bash
-cp .env.example .env
+cp infra/.env.example infra/.env
 # Fill in (minimum required for paper trading):
 #   ALPACA_API_KEY=<your-paper-key>
 #   ALPACA_SECRET_KEY=<your-paper-secret>
 #   POSTGRES_PASSWORD=<choose-strong-password>
-$EDITOR .env
+$EDITOR infra/.env
 ```
 
 > **NEVER** set `ALPACA_BASE_URL=https://api.alpaca.markets` — that is the live endpoint.
@@ -62,7 +62,7 @@ $EDITOR .env
 
 ```bash
 cd /home/kironix/workspace/QuantConnect.VS
-source .env
+set -a && source infra/.env && set +a
 bash ./run_strategy.sh paper-trading
 ```
 
@@ -83,7 +83,7 @@ bash ./run_strategy.sh paper-trading --start-ui
 ### Option B — Manual step-by-step
 
 ```bash
-source .env
+set -a && source infra/.env && set +a
 export COMPOSE_FILE=infra/docker-compose.yml
 export APEX_CONFIG=configs/paper_trading.yaml
 
@@ -92,7 +92,7 @@ docker compose up -d redis kafka timescaledb mlflow schema-registry
 sleep 30
 
 # 2. Health check
-./scripts/health_check.sh
+bash scripts/health_check.sh
 
 # 3. APEX services
 docker compose up -d signal-provider prometheus grafana
@@ -122,7 +122,7 @@ docker compose logs -f signal-provider
 
 ```bash
 # 1. Confirm all services are up
-./scripts/health_check.sh
+bash scripts/health_check.sh
 
 # 2. Confirm kill switch is OFF
 docker compose exec -T redis redis-cli get apex:kill_switch
@@ -161,7 +161,7 @@ python scripts/paper_trading_monitor.py --alert-only
 crontab -e
 # Add:
 0 22 * * 1-5 cd /home/kironix/workspace/QuantConnect.VS && \
-  source .env && \
+  set -a && source infra/.env && set +a && \
   python scripts/paper_trading_monitor.py --alert-only \
   >> logs/paper_trading/cron.log 2>&1
 ```
@@ -190,9 +190,9 @@ EOF
 ## 4. Health Check Reference
 
 ```bash
-./scripts/health_check.sh          # Docker Compose
-./scripts/health_check.sh --k8s    # Kubernetes (apex namespace)
-./scripts/health_check.sh --quiet  # Only print failures
+bash scripts/health_check.sh          # Docker Compose
+bash scripts/health_check.sh --k8s    # Kubernetes (apex namespace)
+bash scripts/health_check.sh --quiet  # Only print failures
 ```
 
 ### Checks performed
@@ -334,7 +334,7 @@ Complete ALL items before switching to live capital.
 - [ ] Sealed Secrets deployed and verified in K8s: `./scripts/seal_secret.sh verify`
 - [ ] Prometheus `apex_pipeline_stale` alert confirmed working
 - [ ] Grafana dashboard reviewed — no anomalies in signal latency panel
-- [ ] Redis AOF confirmed enabled (`./scripts/health_check.sh`)
+- [ ] Redis AOF confirmed enabled (`bash scripts/health_check.sh`)
 - [ ] Backup / disaster-recovery plan documented
 
 ### Business readiness
@@ -386,7 +386,7 @@ docker compose exec kafka \
   --topic paper.signals.scored --max-messages 3 --timeout-ms 5000
 
 # 3. Check consumer lag
-./scripts/health_check.sh
+bash scripts/health_check.sh
 ```
 
 ### TimescaleDB data older than 5 minutes
@@ -403,8 +403,8 @@ docker compose exec timescaledb psql -U apex -d apexdb \
 ### paper_trading_monitor.py exits with code 2
 
 Alpaca API unreachable. Check:
-1. `.env` contains `ALPACA_API_KEY` and `ALPACA_SECRET_KEY`
-2. `source .env` was run in the current shell
+1. `infra/.env` contains `ALPACA_API_KEY` and `ALPACA_SECRET_KEY`
+2. `set -a && source infra/.env && set +a` was run in the current shell
 3. The paper endpoint is reachable: `curl -I https://paper-api.alpaca.markets/v2/account`
 
 ---

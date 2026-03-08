@@ -77,9 +77,9 @@ Complete every item before running go-live commands.
 
 ### B. Environment preparation (morning of go-live)
 
-- [ ] Update `.env` with live credentials:
+- [ ] Update `infra/.env` with live credentials:
   ```bash
-  $EDITOR .env
+  $EDITOR infra/.env
   # Set:
   #   ALPACA_API_KEY=<live-key>
   #   ALPACA_SECRET_KEY=<live-secret>
@@ -87,7 +87,7 @@ Complete every item before running go-live commands.
   ```
 - [ ] Verify no paper values remain:
   ```bash
-  grep "paper-api" .env && echo "ERROR: still pointing at paper endpoint"
+  grep "paper-api" infra/.env && echo "ERROR: still pointing at paper endpoint"
   ```
 - [ ] Set `APEX_CONFIG` to live config:
   ```bash
@@ -122,7 +122,7 @@ Complete every item before running go-live commands.
 ### D. Run the validator (last step before go-live)
 
 ```bash
-source .env
+set -a && source infra/.env && set +a
 python scripts/go_live_validator.py
 ```
 
@@ -148,7 +148,7 @@ Run these in sequence.  Do not skip steps.
 
 ```bash
 cd /home/kironix/workspace/QuantConnect.VS
-source .env
+set -a && source infra/.env && set +a
 export APEX_CONFIG=configs/live_trading.yaml
 export COMPOSE_FILE=infra/docker-compose.yml
 ```
@@ -174,7 +174,7 @@ python scripts/go_live_validator.py --strict
 docker compose up -d redis kafka timescaledb mlflow
 echo "Waiting 45 seconds for infrastructure to initialise..."
 sleep 45
-./scripts/health_check.sh
+bash scripts/health_check.sh
 # All infrastructure checks must pass before proceeding.
 ```
 
@@ -224,7 +224,7 @@ execution       INFO  order submitted: AAPL BUY 10 @ market
 ### Step 8 — Verify first order reached Alpaca
 
 ```bash
-./scripts/verify_first_trade.sh
+bash scripts/verify_first_trade.sh
 ```
 
 Or check directly in the Alpaca dashboard:
@@ -254,7 +254,7 @@ docker compose up -d apex-dashboard
 | Time (ET) | Action |
 |-----------|--------|
 | 09:15     | Check kill switch is OFF; review overnight alerts |
-| 09:25     | Run `./scripts/health_check.sh` |
+| 09:25     | Run `bash scripts/health_check.sh` |
 | 09:30     | Market opens — watch first signal flow in logs |
 | 10:00     | Verify at least one order placed (if signals > 0.70 confidence) |
 | 12:00     | Midday P&L check via Alpaca dashboard |
@@ -440,11 +440,11 @@ ALPACA_API_KEY=<new-key> ALPACA_SECRET_KEY=<new-secret> \
 # Verify: alpaca_credentials check shows PASS
 ```
 
-**Step 3 — Update `.env` and re-seal K8s secrets**
+**Step 3 — Update `infra/.env` and re-seal K8s secrets**
 
 ```bash
-# Update .env
-$EDITOR .env   # change ALPACA_API_KEY and ALPACA_SECRET_KEY
+# Update infra/.env
+$EDITOR infra/.env   # change ALPACA_API_KEY and ALPACA_SECRET_KEY
 
 # If using Kubernetes:
 ./scripts/seal_secret.sh seal-all
@@ -455,7 +455,7 @@ kubectl apply -f deploy/k8s/base/sealed-secret-apex-generated.yaml
 
 For Docker Compose:
 ```bash
-source .env
+set -a && source infra/.env && set +a
 docker compose up -d --no-deps execution exit-monitor lean-alpha
 ```
 
@@ -477,15 +477,15 @@ docker compose logs execution | grep "Alpaca client initialised"
 ### Rotating TimescaleDB password
 
 ```bash
-# 1. Set new password in .env:
-$EDITOR .env   # change TIMESCALEDB_PASSWORD and DATABASE_URL
+# 1. Set new password in infra/.env:
+$EDITOR infra/.env   # change TIMESCALEDB_PASSWORD and DATABASE_URL
 
 # 2. Update the password in PostgreSQL:
 docker compose exec timescaledb psql -U apex -d apexdb \
   -c "ALTER USER apex PASSWORD '<new-password>';"
 
 # 3. Restart affected services:
-source .env
+set -a && source infra/.env && set +a
 docker compose up -d --no-deps data-ingestion feature-engineering risk-engine
 
 # 4. If K8s: seal and apply
@@ -497,11 +497,11 @@ kubectl -n apex rollout restart deployment
 ### Rotating Polygon.io API key
 
 ```bash
-# 1. Update .env
-$EDITOR .env   # change POLYGON_API_KEY
+# 1. Update infra/.env
+$EDITOR infra/.env   # change POLYGON_API_KEY
 
 # 2. Restart data-ingestion only (only service that uses Polygon)
-source .env
+set -a && source infra/.env && set +a
 docker compose up -d --no-deps data-ingestion
 
 # 3. Verify in logs:
@@ -513,7 +513,7 @@ docker compose logs data-ingestion | grep "Polygon"
 Always run the validator after any credential rotation:
 
 ```bash
-source .env
+set -a && source infra/.env && set +a
 python scripts/go_live_validator.py
 ```
 
@@ -529,14 +529,14 @@ docker compose exec redis redis-cli SET apex:kill_switch true
 docker compose down
 
 # 2. Flatten all live positions (if any remain)
-source .env
+set -a && source infra/.env && set +a
 curl -s -X DELETE \
   -H "APCA-API-KEY-ID: $ALPACA_API_KEY" \
   -H "APCA-API-SECRET-KEY: $ALPACA_SECRET_KEY" \
   https://api.alpaca.markets/v2/positions
 
-# 3. Switch back to paper credentials in .env
-$EDITOR .env
+# 3. Switch back to paper credentials in infra/.env
+$EDITOR infra/.env
 # Set:
 #   ALPACA_API_KEY=<paper-key>
 #   ALPACA_SECRET_KEY=<paper-secret>
@@ -544,7 +544,7 @@ $EDITOR .env
 #   APEX_CONFIG=configs/paper_trading.yaml
 
 # 4. Start paper stack
-source .env
+set -a && source infra/.env && set +a
 export APEX_CONFIG=configs/paper_trading.yaml
 bash ./run_strategy.sh paper-trading
 

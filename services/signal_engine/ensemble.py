@@ -128,7 +128,7 @@ class EnsembleScorer:
             combined=combined,
             prediction_ids=prediction_ids,
         )
-        return combined, prediction_ids
+        return combined, prediction_ids if ENABLE_PREDICTION_LINEAGE else []
 
     # ─── TFT staleness gate ─────────────────────────────────────────────────
 

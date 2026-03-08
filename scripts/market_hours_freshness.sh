@@ -7,8 +7,8 @@
 # On weekends or outside market hours, reports expected staleness.
 #
 # Usage:
-#   ./scripts/market_hours_freshness.sh           # from repo root
-#   ./scripts/market_hours_freshness.sh --force   # run checks even outside market hours
+#   bash scripts/market_hours_freshness.sh           # from repo root
+#   bash scripts/market_hours_freshness.sh --force   # run checks even outside market hours
 # ──────────────────────────────────────────────────────────────────────────────
 
 set -uo pipefail

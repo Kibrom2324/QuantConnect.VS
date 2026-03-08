@@ -448,13 +448,13 @@ kubectl -n apex rollout restart deployment
 
 ### Docker Compose (local dev)
 
-For local development, secrets are passed as environment variables sourced from `.env`.
-All `[REQUIRED]` entries in `.env.example` must be filled before `docker compose up`.
+For local development, secrets are passed as environment variables sourced from `infra/.env`.
+All `[REQUIRED]` entries in `infra/.env` must be filled before `docker compose up`.
 The compose file enforces this with `${VAR:?message}` syntax — missing vars abort startup.
 
 ```bash
 export COMPOSE_FILE=infra/docker-compose.yml
-source .env
+set -a && source infra/.env && set +a
 docker compose up -d
 ```
 
@@ -522,7 +522,7 @@ kubectl apply -f deploy/k8s/base/sealed-secret-apex-generated.yaml
 
 Before running `docker compose up`, verify:
 
-- [ ] `.env` copied from `.env.example` and all `[REQUIRED]` vars filled in
+- [ ] `infra/.env` created and all `[REQUIRED]` vars filled in
 - [ ] `ALPACA_BASE_URL` is `https://paper-api.alpaca.markets` (never live without explicit approval)
 - [ ] `POSTGRES_PASSWORD` is a strong password (≥ 20 chars), not the placeholder
 - [ ] `ALPACA_API_KEY` and `ALPACA_SECRET_KEY` are paper-trading keys from app.alpaca.markets
@@ -533,7 +533,7 @@ Before running `docker compose up`, verify:
 
 ```bash
 # 1. Source secrets
-source .env
+set -a && source infra/.env && set +a
 export COMPOSE_FILE=infra/docker-compose.yml
 
 # 2. Start all infrastructure services first
@@ -541,7 +541,7 @@ docker compose up -d redis kafka timescaledb mlflow
 sleep 30   # allow Kafka and TimescaleDB to finish initializing
 
 # 3. Run health checks (infrastructure only)
-./scripts/health_check.sh
+bash scripts/health_check.sh
 
 # 4. Start all APEX microservices
 docker compose up -d
@@ -550,20 +550,20 @@ docker compose up -d
 docker compose logs -f data-ingestion lean-alpha signal-engine risk-engine execution
 
 # 6. After 2-3 minutes: verify first trade
-./scripts/verify_first_trade.sh
+bash scripts/verify_first_trade.sh
 ```
 
 ### Health Check Scripts
 
 ```bash
 # Docker Compose environment
-./scripts/health_check.sh
+bash scripts/health_check.sh
 
 # Kubernetes environment
-./scripts/health_check.sh --k8s
+bash scripts/health_check.sh --k8s
 
 # Verify first order reached Alpaca
-./scripts/verify_first_trade.sh
+bash scripts/verify_first_trade.sh
 ```
 
 ### Monitoring

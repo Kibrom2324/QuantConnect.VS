@@ -31,8 +31,8 @@ def require_env(name: str) -> str:
         raise EnvironmentError(
             f"Required environment variable '{name}' is missing or empty.\n"
             f"  • In Docker/K8s: mount it as a Secret and reference via secretKeyRef\n"
-            f"  • In local dev: add it to your .env file and source it\n"
-            f"  • See .env.example for the full list of required vars"
+            f"  • In local dev: add it to infra/.env and run: set -a && source infra/.env && set +a\n"
+            f"  • See infra/.env for the full list of required vars"
         )
     return value
 
@@ -66,5 +66,5 @@ def assert_secrets_present(names: tuple[str, ...] | list[str]) -> None:
         joined = ", ".join(f"'{m}'" for m in missing)
         raise EnvironmentError(
             f"Service cannot start — required secrets not found: {joined}\n"
-            f"See .env.example for the full list."
+            f"See infra/.env for the full list."
         )

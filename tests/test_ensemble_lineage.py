@@ -81,8 +81,8 @@ class TestLineageFlagDisabled:
     """When ENABLE_PREDICTION_LINEAGE=false, prediction_ids should be empty."""
 
     def test_no_prediction_ids_by_default(self):
-        # Ensure flag is off
-        os.environ.pop("ENABLE_PREDICTION_LINEAGE", None)
+        # Ensure flag is explicitly off
+        os.environ["ENABLE_PREDICTION_LINEAGE"] = "false"
 
         # Re-import to pick up flag value
         import importlib

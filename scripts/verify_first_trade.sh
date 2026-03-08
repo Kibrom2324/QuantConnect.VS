@@ -13,8 +13,8 @@
 #   4.  Alpaca paper API accepted at least one order
 #
 # Usage:
-#   ./scripts/verify_first_trade.sh
-#   ALPACA_API_KEY=... ALPACA_SECRET_KEY=... ./scripts/verify_first_trade.sh
+#   bash scripts/verify_first_trade.sh
+#   ALPACA_API_KEY=... ALPACA_SECRET_KEY=... bash scripts/verify_first_trade.sh
 # ──────────────────────────────────────────────────────────────────────────────
 
 set -uo pipefail

@@ -6,9 +6,9 @@
 # Exit code 0 = fully healthy, non-zero = at least one check failed.
 #
 # Usage:
-#   ./scripts/health_check.sh              — check docker-compose services
-#   ./scripts/health_check.sh --k8s        — check Kubernetes pods (apex namespace)
-#   ./scripts/health_check.sh --quiet      — only print failures
+#   bash scripts/health_check.sh              — check docker-compose services
+#   bash scripts/health_check.sh --k8s        — check Kubernetes pods (apex namespace)
+#   bash scripts/health_check.sh --quiet      — only print failures
 # ──────────────────────────────────────────────────────────────────────────────
 
 set -uo pipefail

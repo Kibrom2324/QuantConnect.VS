@@ -450,7 +450,7 @@ def run() -> int:
     if not DATABASE_URL or "change-me" in DATABASE_URL or ":@" in DATABASE_URL:
         log.critical(
             "DATABASE_URL is missing or contains placeholder credentials. "
-            "Set TIMESCALEDB_PASSWORD (and optionally DATABASE_URL) in .env"
+            "Set TIMESCALEDB_PASSWORD (and optionally DATABASE_URL) in infra/.env"
         )
         return 1
 

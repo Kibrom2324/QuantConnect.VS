@@ -6,7 +6,7 @@
 # Does NOT modify any state — read-only inspection.
 #
 # Usage:
-#   ./scripts/paper_ready_report.sh     # from repo root
+#   bash scripts/paper_ready_report.sh     # from repo root
 # ──────────────────────────────────────────────────────────────────────────────
 
 set -uo pipefail
@@ -38,7 +38,7 @@ echo "╚═══════════════════════�
 # ═══════════════════════════════════════════════════════════════════════
 hdr "═══ 1. SAFETY GUARDS ══════════════════════════════════════════════"
 
-# TRADING_ENABLED in .env
+# TRADING_ENABLED in infra/.env
 TE=$(grep '^TRADING_ENABLED=' infra/.env 2>/dev/null | cut -d= -f2)
 if [[ "$TE" == "false" ]]; then
     pass "TRADING_ENABLED=false in infra/.env (safe default)"
@@ -248,7 +248,7 @@ ALPACA_SECRET=$(grep '^ALPACA_SECRET_KEY=' infra/.env 2>/dev/null | cut -d= -f2)
 ALPACA_URL_ENV=$(grep '^ALPACA_BASE_URL=' infra/.env 2>/dev/null | cut -d= -f2)
 
 if [[ -n "$ALPACA_KEY" && -n "$ALPACA_SECRET" ]]; then
-    pass "Alpaca credentials present in .env"
+    pass "Alpaca credentials present in infra/.env"
     # Check account status
     ACCT=$(curl -s -H "APCA-API-KEY-ID: $ALPACA_KEY" -H "APCA-API-SECRET-KEY: $ALPACA_SECRET" \
         "${ALPACA_URL_ENV:-https://paper-api.alpaca.markets}/v2/account" 2>/dev/null)
@@ -344,11 +344,11 @@ fi
 echo ""
 info "Next steps for PAPER trading:"
 info "  1. Wait for Monday market open (13:00 UTC)"
-info "  2. Verify data freshness: ./scripts/market_hours_freshness.sh"
+info "  2. Verify data freshness: bash scripts/market_hours_freshness.sh"
 info "  3. Set TRADING_ENABLED=true in infra/.env"
-info "  4. Restart: cd infra && docker compose up -d execution-engine"
-info "  5. Monitor: docker compose logs -f execution-engine"
-info "  6. Verify first trade: ./scripts/verify_first_trade.sh"
+info "  4. Restart: docker compose -f infra/docker-compose.yml up -d execution-engine"
+info "  5. Monitor: docker compose -f infra/docker-compose.yml logs -f execution-engine"
+info "  6. Verify first trade: bash scripts/verify_first_trade.sh"
 echo ""
 info "Next steps for LIVE trading (not ready yet):"
 info "  1. Wire TFT inference into signal-engine pipeline"

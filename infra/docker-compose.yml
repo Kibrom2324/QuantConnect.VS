@@ -197,8 +197,8 @@ services:
       KAFKA_BOOTSTRAP_SERVERS:       "kafka:9092"
       EXECUTION_SIGNAL_TOPIC:        "apex.risk.approved"
       EXECUTION_RESULT_TOPIC:        "apex.orders.results"
-      ALPACA_API_KEY:                ${ALPACA_API_KEY:?Set ALPACA_API_KEY in .env}
-      ALPACA_SECRET_KEY:             ${ALPACA_SECRET_KEY:?Set ALPACA_SECRET_KEY in .env}
+      ALPACA_API_KEY:                ${ALPACA_API_KEY:?Set ALPACA_API_KEY in infra/.env}
+      ALPACA_SECRET_KEY:             ${ALPACA_SECRET_KEY:?Set ALPACA_SECRET_KEY in infra/.env}
       ALPACA_BASE_URL:               ${ALPACA_BASE_URL:-https://paper-api.alpaca.markets}
       REDIS_HOST:                    redis
       REDIS_PORT:                    "6379"
@@ -230,8 +230,8 @@ services:
       - "8020:8020"
     environment:
       ALPACA_BASE_URL:   ${ALPACA_BASE_URL:-https://paper-api.alpaca.markets}
-      ALPACA_API_KEY:    ${ALPACA_API_KEY:?Set ALPACA_API_KEY in .env}
-      ALPACA_SECRET_KEY: ${ALPACA_SECRET_KEY:?Set ALPACA_SECRET_KEY in .env}
+      ALPACA_API_KEY:    ${ALPACA_API_KEY:?Set ALPACA_API_KEY in infra/.env}
+      ALPACA_SECRET_KEY: ${ALPACA_SECRET_KEY:?Set ALPACA_SECRET_KEY in infra/.env}
       MLFLOW_TRACKING_URI:    "http://mlflow:5000"
       MLFLOW_EXPERIMENT_NAME: ${MLFLOW_EXPERIMENT_NAME:-apex-walk-forward}
       REDIS_HOST:             redis
@@ -315,11 +315,11 @@ services:
       timescaledb:
         condition: service_healthy
     environment:
-      # ── Secrets: must match .env or be exported in shell before compose up ──
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
-      ALPACA_API_KEY: ${ALPACA_API_KEY:?Set ALPACA_API_KEY in .env}
+      # ── Secrets: must match infra/.env or be exported in shell before compose up ──
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in infra/.env}
+      ALPACA_API_KEY: ${ALPACA_API_KEY:?Set ALPACA_API_KEY in infra/.env}
       # CF fix: use ALPACA_SECRET_KEY (canonical name used by all services)
-      ALPACA_SECRET_KEY: ${ALPACA_SECRET_KEY:?Set ALPACA_SECRET_KEY in .env}
+      ALPACA_SECRET_KEY: ${ALPACA_SECRET_KEY:?Set ALPACA_SECRET_KEY in infra/.env}
       ALPACA_BASE_URL: "https://paper-api.alpaca.markets"
       TRADING_ENABLED: ${TRADING_ENABLED:-false}
       KILL_SWITCH: ${KILL_SWITCH:-false}
@@ -465,8 +465,8 @@ services:
       DATABASE_URL:            "postgresql+asyncpg://apex:${POSTGRES_PASSWORD}@timescaledb:5432/apexdb"
       REDIS_URL:               "redis://redis:6379/0"
       KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
-      REDDIT_CLIENT_ID:        ${REDDIT_CLIENT_ID:?Set REDDIT_CLIENT_ID in .env}
-      REDDIT_CLIENT_SECRET:    ${REDDIT_CLIENT_SECRET:?Set REDDIT_CLIENT_SECRET in .env}
+      REDDIT_CLIENT_ID:        ${REDDIT_CLIENT_ID:?Set REDDIT_CLIENT_ID in infra/.env}
+      REDDIT_CLIENT_SECRET:    ${REDDIT_CLIENT_SECRET:?Set REDDIT_CLIENT_SECRET in infra/.env}
       REDDIT_USER_AGENT:       ${REDDIT_USER_AGENT:-APEX:social-ingest:v1}
       STOCKTWITS_ACCESS_TOKEN: ${STOCKTWITS_ACCESS_TOKEN:-}
       SYMBOLS:                 ${SOCIAL_SYMBOLS:-NVDA,AAPL,MSFT,TSLA}
