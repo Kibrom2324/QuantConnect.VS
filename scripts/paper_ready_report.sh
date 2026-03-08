@@ -11,6 +11,10 @@
 
 set -uo pipefail
 
+# Auto-detect repo root so the script works from any directory
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$REPO_ROOT"
+
 export COMPOSE_FILE="${COMPOSE_FILE:-infra/docker-compose.yml}"
 
 PASS=0

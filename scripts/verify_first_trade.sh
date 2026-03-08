@@ -19,8 +19,10 @@
 
 set -uo pipefail
 
-# Docker Compose file lives in infra/ — set this so all `docker compose` calls
-# resolve correctly regardless of the directory the script is invoked from.
+# Auto-detect repo root so the script works from any directory
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$REPO_ROOT"
+
 export COMPOSE_FILE="${COMPOSE_FILE:-infra/docker-compose.yml}"
 
 FAILED=0
@@ -31,8 +33,8 @@ fail() { FAILED=$((FAILED+1)); printf '  \033[0;31m✗\033[0m %s\n' "$*"; }
 info() { printf '  \033[0;34mℹ\033[0m %s\n' "$*"; }
 hdr()  { printf '\n\033[0;36m%s\033[0m\n' "$*"; }
 
-# Load .env if available (for ALPACA keys)
-[[ -f .env ]] && set -a && source .env && set +a
+# Load infra/.env if available (for ALPACA keys)
+[[ -f infra/.env ]] && set -a && source infra/.env && set +a
 
 ALPACA_BASE_URL="${ALPACA_BASE_URL:-https://paper-api.alpaca.markets}"
 ALPACA_API_KEY="${ALPACA_API_KEY:-}"
@@ -47,7 +49,6 @@ TOPICS=(
     "apex.signals.raw"
     "apex.signals.scored"
     "apex.risk.approved"
-    "apex.signals.approved"
     "apex.orders.results"
 )
 
@@ -120,9 +121,9 @@ fi
 
 hdr "── 3. Signal Flow to Execution ──────────────────────────────────────────"
 
-exec_logs=$(docker compose logs --tail=200 execution 2>/dev/null || echo "")
+exec_logs=$(docker compose logs --tail=200 execution-engine 2>/dev/null || echo "")
 if [[ -z "$exec_logs" ]]; then
-    info "Execution service: could not read logs (service name may differ)"
+    info "Execution service: could not read logs"
 else
     if echo "$exec_logs" | grep -qi "order\|executed\|submitted\|alpaca"; then
         pass "Execution: order-related log entries found"
@@ -133,7 +134,7 @@ else
     fi
 
     if echo "$exec_logs" | grep -qi "error\|exception\|traceback"; then
-        fail "Execution: ERROR entries found in logs — check: docker compose logs execution"
+        fail "Execution: ERROR entries found in logs — check: docker compose logs execution-engine"
     else
         pass "Execution: no ERROR in recent logs"
     fi
@@ -145,7 +146,7 @@ hdr "── 4. Alpaca Paper API ────────────────
 
 if [[ -z "$ALPACA_API_KEY" || "$ALPACA_API_KEY" == "your-alpaca-api-key-here" ]]; then
     fail "ALPACA_API_KEY not set or is placeholder — cannot verify Alpaca orders"
-    info "Set ALPACA_API_KEY and ALPACA_SECRET_KEY in .env and re-run"
+    info "Set ALPACA_API_KEY and ALPACA_SECRET_KEY in infra/.env and re-run"
 else
     # Query Alpaca paper trading orders (last 10)
     orders=$(curl -sf \

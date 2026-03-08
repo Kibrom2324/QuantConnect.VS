@@ -13,8 +13,10 @@
 
 set -uo pipefail
 
-# Docker Compose file lives in infra/ — set this so all `docker compose` calls
-# resolve correctly regardless of the directory the script is invoked from.
+# Auto-detect repo root so the script works from any directory
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$REPO_ROOT"
+
 export COMPOSE_FILE="${COMPOSE_FILE:-infra/docker-compose.yml}"
 
 MODE="compose"
