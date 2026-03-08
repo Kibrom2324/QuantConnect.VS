@@ -145,10 +145,24 @@ else
     warn "tft-service: NOT running (weight 0.35 renormalized away)"
 fi
 
-# XGB score
-warn "xgb_score: NOT available — no XGB inference service exists"
-info "  → train_xgb.py trains a model, but no service runs inference"
-info "  → XGB weight (0.30) is renormalized to 0"
+# XGB score — check if xgb-service is running and has a model loaded
+XGB_STATUS=$(docker compose ps --status running xgb-service 2>/dev/null | tail -n +2 | head -1)
+if [[ -n "$XGB_STATUS" ]]; then
+    XGB_HEALTH=$(curl -sf http://localhost:8007/health 2>/dev/null)
+    XGB_LOADED=$(echo "$XGB_HEALTH" | python3 -c "import sys,json; print(json.load(sys.stdin).get('is_loaded',False))" 2>/dev/null)
+    XGB_MODEL=$(echo "$XGB_HEALTH" | python3 -c "import sys,json; print(json.load(sys.stdin).get('model_id',''))" 2>/dev/null)
+    if [[ "$XGB_LOADED" == "True" ]]; then
+        pass "xgb_score: available — xgb-service running, model $XGB_MODEL loaded"
+        XGB_WIRED=true
+    else
+        warn "xgb-service: running but NO model loaded (score renormalized to 0)"
+        XGB_WIRED=false
+    fi
+else
+    warn "xgb_score: NOT available — xgb-service not running"
+    info "  → XGB weight (0.30) is renormalized to 0"
+    XGB_WIRED=false
+fi
 
 # LLM score
 LLM_KEY_COUNT=$(docker compose exec -T redis redis-cli keys 'apex:llm:sentiment:*' 2>/dev/null | wc -l)
@@ -161,9 +175,15 @@ fi
 
 echo ""
 # Effective weights calculation
-info "Effective ensemble: factor_score gets 100% weight (all others renormalized)"
-info "This is a SINGLE-FACTOR system until TFT/XGB inference is wired in"
-warn "Acceptable for paper validation, but NOT ideal for production"
+if [[ "${XGB_WIRED:-false}" == "true" ]]; then
+    info "Effective ensemble: factor_score (0.20) + xgb_score (0.30) = 2-factor system"
+    info "TFT not wired — TFT weight renormalized across factor + XGB"
+    pass "Multi-model ensemble: ACTIVE (factor + XGB)"
+else
+    info "Effective ensemble: factor_score gets 100% weight (all others renormalized)"
+    info "This is a SINGLE-FACTOR system until TFT/XGB inference is wired in"
+    warn "Acceptable for paper validation, but NOT ideal for production"
+fi
 
 # Calibration
 CAL_TYPE=$(docker compose exec -T redis redis-cli type 'apex:calibration:curve' 2>/dev/null | tr -d '[:space:]')
@@ -178,7 +198,7 @@ MODEL_COUNT=$(docker compose exec -T redis redis-cli keys 'apex:models:*' 2>/dev
 if [[ "$MODEL_COUNT" -gt 0 ]]; then
     pass "Model registry: $MODEL_COUNT models in Redis"
     # Show latest by type
-    for model_key in TFT_v4 XGB_v3 ENS_v4 LSTM_v5; do
+    for model_key in TFT_v4 XGB_v5901 XGB_v3 ENS_v4 LSTM_v5; do
         meta=$(docker compose exec -T redis redis-cli get "apex:models:$model_key" 2>/dev/null)
         if [[ -n "$meta" && "$meta" != "(nil)" ]]; then
             status=$(echo "$meta" | python3 -c "import sys,json; d=json.load(sys.stdin); print(f\"{d.get('model_type','?')} | status={d.get('status','?')} | sharpe={d.get('val_sharpe','?')} | hit={d.get('val_hit_rate','?')}\")" 2>/dev/null)
@@ -313,7 +333,11 @@ printf '  %-35s  \033[0;32m%-10s\033[0m  \033[0;32m%-10s\033[0m\n' "Core pipelin
 printf '  %-35s  \033[0;32m%-10s\033[0m  \033[0;32m%-10s\033[0m\n' "Kafka consumer lag = 0" "DONE" "DONE"
 printf '  %-35s  \033[0;32m%-10s\033[0m  \033[0;32m%-10s\033[0m\n' "Isotonic calibration" "DONE" "DONE"
 printf '  %-35s  \033[0;32m%-10s\033[0m  \033[0;32m%-10s\033[0m\n' "323 tests passing" "DONE" "DONE"
-printf '  %-35s  \033[0;33m%-10s\033[0m  \033[0;31m%-10s\033[0m\n' "Multi-model ensemble (TFT+XGB)" "$WARN" "MISSING"
+if [[ "${XGB_WIRED:-false}" == "true" ]]; then
+    printf '  %-35s  \033[0;32m%-10s\033[0m  \033[0;33m%-10s\033[0m\n' "Multi-model ensemble (XGB wired)" "DONE" "PARTIAL"
+else
+    printf '  %-35s  \033[0;33m%-10s\033[0m  \033[0;31m%-10s\033[0m\n' "Multi-model ensemble (TFT+XGB)" "$WARN" "MISSING"
+fi
 printf '  %-35s  \033[0;33m%-10s\033[0m  \033[0;31m%-10s\033[0m\n' "LLM sentiment agent" "OPTIONAL" "MISSING"
 printf '  %-35s  \033[0;33m%-10s\033[0m  \033[0;31m%-10s\033[0m\n' "Exit monitor (SL/TP)" "OPTIONAL" "MISSING"
 printf '  %-35s  \033[0;33m%-10s\033[0m  \033[0;31m%-10s\033[0m\n' "Circuit breaker (daemon)" "OPTIONAL" "REQUIRED"
@@ -350,7 +374,7 @@ info "  6. Verify first trade: bash scripts/verify_first_trade.sh"
 echo ""
 info "Next steps for LIVE trading (not ready yet):"
 info "  1. Wire TFT inference into signal-engine pipeline"
-info "  2. Build XGB inference service"
+info "  2. Wire TFT inference into xgb-service pattern"
 info "  3. Deploy circuit_breaker as Docker service"
 info "  4. Deploy exit_monitor service"
 info "  5. Run go_live_validator.py with live credentials"
